@@ -1,0 +1,298 @@
+@import "tailwindcss";
+
+@theme {
+  /* Typefaces */
+  --font-display: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+  /* Numeric / display figures (TVL, prices) — set via the OPTICS·TUNE exploration */
+  --font-num: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+
+  /* Surfaces — near-black with a cool tint, layered upward */
+  --color-void: #07070b;
+  --color-panel: #0c0c12;
+  --color-panel-2: #111119;
+  --color-line: #1c1c28;
+  --color-line-bright: #2c2c3c;
+
+  /* Ink ramp */
+  --color-ink: #e8e8f0;
+  --color-ink-dim: #8b8b9e;
+  --color-ink-faint: #565669;
+
+  /* Accents */
+  --color-violet: #7b5cff;
+  --color-violet-bright: #a48bff;
+  --color-violet-deep: #4326a8;
+  --color-alert: #ff3b52;
+  --color-teal: #34d6c4;
+
+  /* Optics palette — tied to the spectrum background (edge dispersal) */
+  --color-cyan: #35e0ff;
+  --color-magenta: #ff4db8;
+  --color-amber: #ff9248;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-void);
+  /* Faint violet vignette + a barely-there technical grid */
+  background-image:
+    radial-gradient(
+      120% 80% at 50% -10%,
+      color-mix(in srgb, var(--color-violet) 10%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(
+      color-mix(in srgb, var(--color-line) 45%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--color-line) 45%, transparent) 1px,
+      transparent 1px
+    );
+  background-size: 100% 100%, 72px 72px, 72px 72px;
+  background-attachment: fixed;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Raised card surface — lifted a few shades above the void (cool-tinted) so panels
+   read as distinct glass instead of a near-invisible wash on near-black. Single knob:
+   tune `background-color` here to lighten/darken every `.card-surface` at once.
+   Pair with `backdrop-blur-md` + a radius utility; sub-panels stay darker (bg-black/*)
+   for layered depth. */
+.card-surface {
+  background-color: rgba(23, 23, 32, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Tabular figures everywhere numbers matter */
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* SPECTRUM wordmark — a prism of light refracts across the letters. Two
+   spectral bands (crossing angles, opposite directions, different widths/speeds)
+   drift out and back on an eased path, so the highlights cross and interfere
+   like dispersed light dancing across the title rather than a band on a track. */
+.spectrum-wordmark {
+  display: inline-block;
+  /* BOTTOM layer is fully opaque everywhere (ink margins + a spectral band) so
+     the text is ALWAYS covered. TOP layer is transparent except for a fainter,
+     reversed prismatic streak — a second refracted highlight. Oversized widths
+     keep the ink margins overflowing the box → no uncovered (transparent) glyphs. */
+  background-image:
+    linear-gradient(
+      86deg,
+      transparent 0%,
+      transparent 43%,
+      color-mix(in srgb, var(--color-cyan) 50%, transparent) 47%,
+      color-mix(in srgb, var(--color-magenta) 50%, transparent) 50%,
+      color-mix(in srgb, var(--color-amber) 50%, transparent) 53%,
+      transparent 57%,
+      transparent 100%
+    ),
+    linear-gradient(
+      100deg,
+      var(--color-ink) 0%,
+      var(--color-ink) 41%,
+      var(--color-amber) 45%,
+      var(--color-magenta) 50%,
+      var(--color-cyan) 55%,
+      var(--color-ink) 59%,
+      var(--color-ink) 100%
+    );
+  background-size: 220% 100%, 300% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Path goes out (0→50%) then back (50→100%) within one loop, so it's seamless
+     without `alternate`; ease-in-out makes it dwell at the crossover and the
+     edges → a slow swell that recedes, not a constant-velocity sweep. */
+  animation: spectrum-refract 16s ease-in-out infinite;
+}
+
+@keyframes spectrum-refract {
+  0% {
+    background-position: 100% 50%, 0% 50%;
+  }
+  50% {
+    background-position: 0% 50%, 100% 50%;
+  }
+  100% {
+    background-position: 100% 50%, 0% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spectrum-wordmark {
+    animation: none;
+    background-position: 50% 50%, 50% 50%;
+  }
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-violet) 40%, transparent);
+}
+
+/* Keyboard focus ring across all controls, at zero specificity so component
+   styles still win. */
+:where(a, button, input, select, textarea, summary, [tabindex], [role='button'], [role='link']):focus-visible {
+  outline: 2px solid var(--color-cyan);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Bento tile sheen — a soft diagonal highlight that slowly sweeps across.
+   The band is off-screen at both ends of the cycle, so the loop is seamless;
+   tiles are phase-offset by position so the glint travels across the card. */
+@keyframes bento-sheen {
+  0% {
+    background-position: 0% 0;
+  }
+  100% {
+    background-position: 100% 0;
+  }
+}
+.bento-sheen {
+  background-image: linear-gradient(115deg, transparent 38%, rgba(255, 255, 255, 0.14) 50%, transparent 62%);
+  background-size: 300% 100%;
+  background-repeat: no-repeat;
+  animation: bento-sheen 12s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bento-sheen {
+    animation: none;
+    background-position: 50% 0;
+  }
+}
+
+/* ── Post-deploy portal animation (orbs → portal → reveal) ───────────────────
+   Used by the /post-deploy-test page. Orb motion is driven imperatively in JS;
+   only the portal's swirling energy + the final success pulse live here. */
+@keyframes portal-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.portal-spin {
+  animation: portal-spin 4s linear infinite;
+}
+.portal-spin-reverse {
+  animation: portal-spin 6s linear infinite reverse;
+}
+
+/* The ring is centered via margin:auto (no transform), so the pulse only needs
+   to scale — no translate, which means it can never knock the portal off-center. */
+@keyframes portal-success-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 80px rgba(16, 185, 129, 0.8);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+  }
+}
+.portal-success-pulse {
+  animation: portal-success-pulse 1s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portal-spin,
+  .portal-spin-reverse,
+  .portal-success-pulse {
+    animation: none;
+  }
+}
+
+/* ── Concept reveal: real assets orbit, then fuse into one index token ───────
+   Used on the home page. The orb wrapper rotates slowly; each orb sits on a ring
+   (rotate(var(--angle)) translateX) and, on the loop, drifts to the centre and
+   fades as the index token pulses brightest — "many assets become one". */
+.concept-spin {
+  animation: portal-spin 50s linear infinite;
+}
+@keyframes concept-converge {
+  0% {
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateX(118px);
+    opacity: 0;
+  }
+  8% {
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateX(118px);
+    opacity: 1;
+  }
+  48% {
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateX(118px);
+    opacity: 1;
+  }
+  74% {
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateX(6px);
+    opacity: 0.85;
+  }
+  84% {
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateX(0);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(var(--angle)) translateX(0);
+    opacity: 0;
+  }
+}
+.concept-orb {
+  transform: translate(-50%, -50%) rotate(var(--angle)) translateX(118px);
+  animation: concept-converge 7s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  will-change: transform, opacity;
+}
+@keyframes concept-core-pulse {
+  0%,
+  48% {
+    transform: translate(-50%, -50%) scale(0.82);
+    opacity: 0.5;
+    box-shadow: 0 0 20px rgba(123, 92, 255, 0.3);
+  }
+  84% {
+    transform: translate(-50%, -50%) scale(1.12);
+    opacity: 1;
+    box-shadow: 0 0 64px rgba(123, 92, 255, 0.6);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.95);
+    opacity: 0.82;
+    box-shadow: 0 0 30px rgba(123, 92, 255, 0.35);
+  }
+}
+.concept-core {
+  transform: translate(-50%, -50%);
+  animation: concept-core-pulse 7s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .concept-spin,
+  .concept-orb,
+  .concept-core {
+    animation: none;
+  }
+}
