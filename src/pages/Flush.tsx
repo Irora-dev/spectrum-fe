@@ -1,4 +1,11 @@
+import { Navigate } from 'react-router-dom'
+import { TRADING_ENABLED } from '../lib/config/features'
+
 export function Flush() {
+  // Fee-claim is a transactional surface — gated with buy/sell (TRADING_ENABLED), the
+  // last flag to flip. Direct URLs redirect home; the page stays in the tree.
+  if (!TRADING_ENABLED) return <Navigate to="/" replace />
+
   return (
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-white">Fee payout</h1>

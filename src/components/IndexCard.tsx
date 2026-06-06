@@ -9,7 +9,8 @@ import { SECTOR_COLOR, sectorOf } from '../lib/spectrum/sectors'
 import { getIndexMeta } from '../lib/spectrum/metadata'
 import { indexSignatureColor } from '../lib/spectrum/signature'
 import { tokenVisual } from '../lib/spectrum/token-meta'
-import { formatNav, formatPct, formatUsdCompact, shortAddr } from '../lib/spectrum/format'
+import { formatNav, formatPct, formatUsdCompact } from '../lib/spectrum/format'
+import { resolveCreatorFromMeta } from '../lib/spectrum/creator'
 
 const PER_PAGE = 3
 
@@ -82,7 +83,7 @@ export function IndexCard({ ix }: { ix: IndexSummary }) {
   const sc = SECTOR_COLOR[sector]
   const meta = getIndexMeta(ix.address)
   const sig = indexSignatureColor(ix.address, ix.top[0])
-  const creator = meta.creatorHandle ?? shortAddr(ix.address)
+  const creator = resolveCreatorFromMeta(meta, ix.deployer, ix.address).label
 
   const holdings = ix.top
   const pages = Math.max(1, Math.ceil(holdings.length / PER_PAGE))
@@ -115,7 +116,20 @@ export function IndexCard({ ix }: { ix: IndexSummary }) {
                 <ChainBadge chainId={ix.chainId} />
               </div>
               <div className="mt-1 line-clamp-1 text-xs text-ink-dim">{ix.name?.trim() || '—'}</div>
-              <div className="mt-0.5 font-mono text-[10px] tracking-wide text-ink-faint">by {creator}</div>
+              <div className="mt-0.5 font-mono text-[10px] tracking-wide text-ink-faint">
+                by{' '}
+                {ix.deployer ? (
+                  <Link
+                    to={`/creator/${ix.deployer}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="pointer-events-auto text-ink-dim transition-colors hover:text-cyan"
+                  >
+                    {creator}
+                  </Link>
+                ) : (
+                  creator
+                )}
+              </div>
             </div>
           </div>
           <span

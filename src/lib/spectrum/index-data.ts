@@ -1,10 +1,11 @@
 import { encodePacked, formatUnits, keccak256, type Address } from 'viem'
 import { clientFor } from '../chain/rpc'
-import { V4_POOLS_SLOT } from '../chain/constants'
+import { DSTABLE_DECIMALS, V4_POOLS_SLOT, ZERO_ADDRESS } from '../chain/constants'
 import { chainCfg, DEFAULT_CHAIN_ID, SUPPORTED_CHAIN_IDS } from '../chain/chains'
 import {
   dstableAbi,
   erc20BalanceAbi,
+  factoryAbi,
   indexAbi,
   launchedEvent,
   poolManagerAbi,
@@ -63,6 +64,14 @@ export interface IndexData {
   totalCount: number
   inceptionTs: number | null
   ageHours: number | null
+  /** Creator (deployer) address from the factory registry; null if unknown. */
+  deployer: string | null
+  /** effectiveSupply() (yield-vesting can push this above totalSupply). Detail-only. */
+  effectiveSupply: number | null
+  /** Fees claimable by holders, in USD ($1-peg dstable). Detail-only. */
+  feeReserveUsd: number | null
+  /** Swap-fee cut queued for the bridge→PRISM buy-and-burn, in USD. Detail-only. */
+  pendingBurnUsd: number | null
   updatedAt: string
 }
 
@@ -84,6 +93,8 @@ export interface IndexSummary {
   pricedCount: number
   top: IndexTopHolding[]
   navSeries: NavPoint[]
+  /** Creator (deployer) address from the factory registry; null if unknown. */
+  deployer: string | null
 }
 
 // ── DexScreener pricing (per-chain, no key) ──────────────────────────────────
@@ -95,26 +106,60 @@ interface DexPair {
   liquidity?: { usd?: number }
 }
 
+// Short-TTL spot-price cache, keyed by chain-slug + token. A homepage of cards
+// shares many constituents (and every card re-derives the WETH price for the pool
+// factor), so without this each refresh re-hits DexScreener once per card — wasteful
+// and a 429 risk. Fresh hits (including known-unpriced, cached as null) skip the
+// network; only stale/missing tokens are fetched. TTL < the 60s query refetch, so a
+// refetch always re-reads.
+const DEX_TTL_MS = 30_000
+interface CachedDexPair {
+  pair: DexPair | null
+  ts: number
+}
+const dexCache = new Map<string, CachedDexPair>()
+
 async function fetchDexPrices(
   addresses: string[],
   slug: string,
 ): Promise<Map<string, DexPair>> {
   const out = new Map<string, DexPair>()
   if (addresses.length === 0) return out
+  const now = Date.now()
+  const misses: string[] = []
+  for (const a of addresses) {
+    const cached = dexCache.get(`${slug}:${a}`)
+    if (cached && now - cached.ts < DEX_TTL_MS) {
+      if (cached.pair) out.set(a, cached.pair)
+    } else {
+      misses.push(a)
+    }
+  }
+  if (misses.length === 0) return out
+
   // DexScreener accepts up to 30 contracts per call; a basket is <= ~12.
-  const url = `https://api.dexscreener.com/tokens/v1/${slug}/${addresses.join(',')}`
+  const url = `https://api.dexscreener.com/tokens/v1/${slug}/${misses.join(',')}`
   try {
     const r = await fetch(url, { headers: { Accept: 'application/json' } })
     if (!r.ok) return out
     const pairs = (await r.json()) as DexPair[]
+    // Deepest-liquidity pair per token among the fetched misses.
+    const best = new Map<string, DexPair>()
     for (const p of pairs) {
       const a = p.baseToken?.address?.toLowerCase()
       if (!a) continue
-      const prev = out.get(a)
-      if (!prev || (p.liquidity?.usd ?? 0) > (prev.liquidity?.usd ?? 0)) out.set(a, p)
+      const prev = best.get(a)
+      if (!prev || (p.liquidity?.usd ?? 0) > (prev.liquidity?.usd ?? 0)) best.set(a, p)
+    }
+    // Cache every miss (null when DexScreener returned nothing) so repeat lookups
+    // across cards don't re-request it within the TTL.
+    for (const a of misses) {
+      const pair = best.get(a) ?? null
+      dexCache.set(`${slug}:${a}`, { pair, ts: now })
+      if (pair) out.set(a, pair)
     }
   } catch {
-    /* leave map empty; caller treats as unpriced */
+    /* network error — leave misses unpriced for this call; don't cache the failure */
   }
   return out
 }
@@ -211,15 +256,68 @@ async function getInceptionTs(token: Address, chainId: number): Promise<number |
   }
 }
 
+// Creator attribution: the factory stores (deployer, pook) per index. One cheap
+// static read, permanently cached (a deployer never changes). Works for any index
+// including seeds, with no log-window dependency. Null on revert / zero deployer.
+const deployerCache = new Map<string, string | null>()
+async function getDeployer(token: Address, chainId: number): Promise<string | null> {
+  const key = `${chainId}:${token.toLowerCase()}`
+  const cached = deployerCache.get(key)
+  if (cached !== undefined) return cached
+  try {
+    const client = clientFor(chainId)
+    const factory = chainCfg(chainId).spectrumFactory
+    const [deployer] = await client.readContract({
+      address: factory,
+      abi: factoryAbi,
+      functionName: 'tokens',
+      args: [token],
+    })
+    const out = deployer && deployer !== ZERO_ADDRESS ? deployer : null
+    deployerCache.set(key, out)
+    return out
+  } catch {
+    deployerCache.set(key, null)
+    return null
+  }
+}
+
 interface PriceFactor {
   factor: number
   dstableUsd: number | null
 }
 // Base: factor = dstablePerETH × dstableUsd ÷ ETH_USD (from the dstable/ETH pool
 // sqrtPrice via extsload). ETH: no pool id wired → factor 1 (aggregate spot).
+//
+// Cached per chain with in-flight coalescing: a list refresh fans out N concurrent
+// getIndexData calls that each need this same factor — without coalescing they'd
+// each redo the extsload + exchangeRate + WETH-price fetch. One shared computation
+// per refresh instead of N. TTL < the 60s query refetch so values stay fresh.
+const POOL_FACTOR_TTL_MS = 30_000
+const poolFactorCache = new Map<number, { value: PriceFactor; ts: number }>()
+const poolFactorInflight = new Map<number, Promise<PriceFactor>>()
+
 async function getPoolPriceFactor(chainId: number): Promise<PriceFactor> {
+  const cached = poolFactorCache.get(chainId)
+  if (cached && Date.now() - cached.ts < POOL_FACTOR_TTL_MS) return cached.value
+  const inflight = poolFactorInflight.get(chainId)
+  if (inflight) return inflight
+  const p = computePoolPriceFactor(chainId)
+  poolFactorInflight.set(chainId, p)
+  try {
+    return await p
+  } finally {
+    poolFactorInflight.delete(chainId)
+  }
+}
+
+async function computePoolPriceFactor(chainId: number): Promise<PriceFactor> {
   const cfg = chainCfg(chainId)
-  if (!cfg.dstableEthPoolId) return { factor: 1, dstableUsd: null }
+  if (!cfg.dstableEthPoolId) {
+    const v: PriceFactor = { factor: 1, dstableUsd: null }
+    poolFactorCache.set(chainId, { value: v, ts: Date.now() })
+    return v
+  }
   try {
     const client = clientFor(chainId)
     const slot = keccak256(
@@ -252,7 +350,9 @@ async function getPoolPriceFactor(chainId: number): Promise<PriceFactor> {
     let factor = 1
     if (dstablePerEth && dstableUsd && ethUsd) factor = (dstablePerEth * dstableUsd) / ethUsd
     if (!(factor > 0) || !isFinite(factor)) factor = 1
-    return { factor, dstableUsd }
+    const v: PriceFactor = { factor, dstableUsd }
+    poolFactorCache.set(chainId, { value: v, ts: Date.now() })
+    return v
   } catch {
     return { factor: 1, dstableUsd: null }
   }
@@ -277,17 +377,18 @@ function weightedChange(holdings: Holding[], aumUsd: number): number | null {
 export async function getIndexData(
   address: Address,
   chainId: number = DEFAULT_CHAIN_ID,
-  opts: { inception?: boolean } = {},
+  opts: { inception?: boolean; detail?: boolean; priceFactor?: PriceFactor } = {},
 ): Promise<IndexData> {
   const client = clientFor(chainId)
   const cfg = chainCfg(chainId)
 
-  const [name, symbol, decimalsRaw, supplyRaw, lenRaw] = await Promise.all([
+  const [name, symbol, decimalsRaw, supplyRaw, lenRaw, deployer] = await Promise.all([
     client.readContract({ address, abi: indexAbi, functionName: 'name' }),
     client.readContract({ address, abi: indexAbi, functionName: 'symbol' }),
     client.readContract({ address, abi: indexAbi, functionName: 'decimals' }),
     client.readContract({ address, abi: indexAbi, functionName: 'totalSupply' }),
     client.readContract({ address, abi: indexAbi, functionName: 'basketLength' }),
+    getDeployer(address, chainId),
   ])
 
   const decimals = Number(decimalsRaw)
@@ -315,7 +416,9 @@ export async function getIndexData(
   const ageHours = inceptionTs != null ? (Date.now() / 1000 - inceptionTs) / 3600 : null
   const maxHours = ageHours != null ? Math.min(Math.max(ageHours, 0.05), 24) : 24
 
-  const { factor, dstableUsd } = await getPoolPriceFactor(chainId)
+  // List views inject one shared factor (computed once for the whole batch);
+  // standalone callers compute it on demand (cached + coalesced).
+  const { factor, dstableUsd } = opts.priceFactor ?? (await getPoolPriceFactor(chainId))
 
   const dex = await fetchDexPrices(assets.map((a) => a.toLowerCase()), cfg.dexscreenerSlug)
   const DSTABLE = cfg.dstable.toLowerCase()
@@ -372,6 +475,22 @@ export async function getIndexData(
   )
   const navSeries = navSeriesUsd.map((p) => ({ time: p.time, value: p.value * factor }))
 
+  // Protocol readouts for the detail page — three cheap static reads, each
+  // fail-safe (null on revert). Skipped for list views so cards stay lean.
+  let effectiveSupply: number | null = null
+  let feeReserveUsd: number | null = null
+  let pendingBurnUsd: number | null = null
+  if (opts.detail) {
+    const [effRaw, feeRaw, burnRaw] = await Promise.all([
+      client.readContract({ address, abi: indexAbi, functionName: 'effectiveSupply' }).catch(() => null),
+      client.readContract({ address, abi: indexAbi, functionName: 'feeReserveDstable' }).catch(() => null),
+      client.readContract({ address, abi: indexAbi, functionName: 'pendingPrismBurnDstable' }).catch(() => null),
+    ])
+    if (effRaw != null) effectiveSupply = Number(formatUnits(effRaw, decimals))
+    if (feeRaw != null) feeReserveUsd = Number(formatUnits(feeRaw, DSTABLE_DECIMALS))
+    if (burnRaw != null) pendingBurnUsd = Number(formatUnits(burnRaw, DSTABLE_DECIMALS))
+  }
+
   return {
     chainId,
     address,
@@ -390,6 +509,10 @@ export async function getIndexData(
     totalCount: holdings.length,
     inceptionTs,
     ageHours,
+    deployer,
+    effectiveSupply,
+    feeReserveUsd,
+    pendingBurnUsd,
     updatedAt: new Date().toISOString(),
   }
 }
@@ -418,10 +541,16 @@ export async function listIndexesForChain(chainId: number): Promise<IndexSummary
     /* seed set only */
   }
 
+  // Compute the chain's dstable/ETH price factor ONCE here, then inject it into
+  // every card — otherwise each of the N concurrent getIndexData calls would
+  // recompute it (extsload + exchangeRate + a WETH-price fetch) before any of them
+  // could populate the shared cache.
+  const priceFactor = await getPoolPriceFactor(chainId)
+
   const list = await Promise.all(
     Array.from(addresses).map(async (addr): Promise<IndexSummary | null> => {
       try {
-        const d = await getIndexData(addr as Address, chainId)
+        const d = await getIndexData(addr as Address, chainId, { priceFactor })
         // All constituents, by launch-target weight (so cards show the whole basket
         // and the bento %/sizes match the detail page).
         const top = [...d.holdings]
@@ -439,6 +568,7 @@ export async function listIndexesForChain(chainId: number): Promise<IndexSummary
           pricedCount: d.pricedCount,
           top,
           navSeries: d.navSeries,
+          deployer: d.deployer,
         }
       } catch {
         return null
@@ -463,4 +593,40 @@ export async function listAllIndexes(): Promise<IndexSummary[]> {
 // Back-compat: Base-only list.
 export async function listIndexes(): Promise<IndexSummary[]> {
   return listIndexesForChain(DEFAULT_CHAIN_ID)
+}
+
+// Per-wallet index balances (powers the portfolio). Reads balanceOf + decimals per
+// index, grouped by chain so each chain's reads batch into one Multicall3 call.
+// Returns token-unit balances keyed by lowercased index address; failed reads → 0.
+export async function getUserHoldings(
+  account: Address,
+  indexes: { address: string; chainId: number }[],
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>()
+  const byChain = new Map<number, string[]>()
+  for (const ix of indexes) {
+    const arr = byChain.get(ix.chainId) ?? []
+    arr.push(ix.address)
+    byChain.set(ix.chainId, arr)
+  }
+  await Promise.all(
+    Array.from(byChain.entries()).map(async ([chainId, addrs]) => {
+      const client = clientFor(chainId)
+      await Promise.all(
+        addrs.map(async (addr) => {
+          const token = addr as Address
+          try {
+            const [bal, dec] = await Promise.all([
+              client.readContract({ address: token, abi: erc20BalanceAbi, functionName: 'balanceOf', args: [account] }),
+              client.readContract({ address: token, abi: indexAbi, functionName: 'decimals' }),
+            ])
+            out.set(addr.toLowerCase(), Number(formatUnits(bal, Number(dec))))
+          } catch {
+            out.set(addr.toLowerCase(), 0)
+          }
+        }),
+      )
+    }),
+  )
+  return out
 }

@@ -6,6 +6,9 @@ const FOOTER_LINKS: { to: string; label: string }[] = [
   { to: '/learn', label: 'Learn' },
   { to: '/faq', label: 'FAQ' },
   { to: '/docs/valuation', label: 'Valuation docs' },
+  { to: '/terms', label: 'Terms' },
+  { to: '/privacy', label: 'Privacy' },
+  { to: '/risk', label: 'Risk' },
 ]
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -44,6 +47,16 @@ export function Layout({ children }: { children: ReactNode }) {
           <span className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-faint">
             powered by PRISM
           </span>
+        </div>
+        {/* Site-wide disclaimer. PLACEHOLDER legal copy — finalize with counsel before
+            any wallet/transactional surface is enabled on a public build. */}
+        <div className="mx-auto max-w-6xl border-t border-line/60 px-4 py-3 sm:px-6">
+          <p className="max-w-4xl font-mono text-[10px] leading-relaxed tracking-[0.05em] text-ink-faint/75">
+            Informational only — not an offer, solicitation, or financial, investment, legal, or tax advice.
+            Spectrum is software provided without warranty. Index tokens are created and issued by their
+            respective deployers, who are solely responsible for their own legal and compliance obligations.
+            Onchain assets carry risk, including total loss of value.
+          </p>
         </div>
       </footer>
     </div>

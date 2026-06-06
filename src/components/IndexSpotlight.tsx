@@ -9,7 +9,8 @@ import { SECTOR_COLOR, sectorOf } from '../lib/spectrum/sectors'
 import { getIndexMeta } from '../lib/spectrum/metadata'
 import { indexSignatureColor } from '../lib/spectrum/signature'
 import { readableInk } from '../lib/spectrum/token-meta'
-import { formatNav, formatPct, formatUsdCompact, shortAddr } from '../lib/spectrum/format'
+import { formatNav, formatPct, formatUsdCompact } from '../lib/spectrum/format'
+import { resolveCreatorFromMeta } from '../lib/spectrum/creator'
 
 const ADVANCE_MS = 6500
 
@@ -102,7 +103,7 @@ function SpotlightSlide({ ix }: { ix: IndexSummary }) {
                 </span>
               </div>
               <div className="mt-1 font-mono text-[10px] uppercase tracking-wide text-ink-faint">
-                by {meta.creatorHandle ?? shortAddr(ix.address)}
+                by {resolveCreatorFromMeta(meta, ix.deployer, ix.address).label}
               </div>
             </div>
           </div>

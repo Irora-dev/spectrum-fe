@@ -8,9 +8,8 @@ export function Launch() {
           Launch an index
         </h1>
         <p className="max-w-md text-sm leading-relaxed text-ink-dim sm:text-right">
-          Pick a basket of tokens, weight it, and see how it would have performed — then deploy one
-          tradeable index token. Buyers mint straight into the pool, and you earn from the volume,
-          not a management fee.
+          Pick a basket of tokens, weight it, and deploy one tradeable index token. Buyers mint
+          straight into the pool, and you earn from the volume, not a management fee.
         </p>
       </header>
       <IndexBuilder />

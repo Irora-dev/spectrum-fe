@@ -3,11 +3,15 @@ import { NetworkToggle } from './NetworkToggle'
 import { WalletButton } from './WalletButton'
 import { SpectrumWordmark } from './SpectrumWordmark'
 import { PrismMark } from '../hud'
+import { TRADING_ENABLED, WALLET_ENABLED } from '../lib/config/features'
 
 const links: { to: string; label: string; end?: boolean }[] = [
   { to: '/', label: 'Explore', end: true },
   { to: '/launch', label: 'Launch' },
-  { to: '/flush', label: 'Flush' },
+  // Portfolio = read-only holdings (needs only a connected wallet); Flush = fee-claim,
+  // a transactional surface gated with buy/sell.
+  ...(WALLET_ENABLED ? [{ to: '/portfolio', label: 'Portfolio' }] : []),
+  ...(TRADING_ENABLED ? [{ to: '/flush', label: 'Flush' }] : []),
   { to: '/faq', label: 'FAQ' },
 ]
 
@@ -42,7 +46,7 @@ export function Nav() {
         {/* right — network + wallet */}
         <div className="flex items-center gap-2">
           <NetworkToggle />
-          <WalletButton />
+          {WALLET_ENABLED && <WalletButton />}
         </div>
       </div>
     </header>

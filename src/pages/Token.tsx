@@ -14,6 +14,8 @@ import { CopyChip } from '../components/DocKit'
 import { indexSignatureColor } from '../lib/spectrum/signature'
 import { readableInk } from '../lib/spectrum/token-meta'
 import { formatNav, formatPct, shortAddr } from '../lib/spectrum/format'
+import { resolveCreator } from '../lib/spectrum/creator'
+import { TRADING_ENABLED } from '../lib/config/features'
 
 function Notice({ children }: { children: ReactNode }) {
   return (
@@ -91,6 +93,13 @@ export function Token() {
   if (isError || !ix) return <Notice>Couldn’t load this index — try again, or set an Alchemy key for reliable reads.</Notice>
 
   const meta = getIndexMeta(addr)
+  const creator = resolveCreator({
+    handle: meta.creatorHandle,
+    name: meta.creatorName,
+    xUrl: meta.xUrl,
+    deployer: ix.deployer,
+    indexAddress: addr,
+  })
   const sector = sectorOf(addr)
   const sc = SECTOR_COLOR[sector]
   const accent = (ix.change24hPct ?? 0) >= 0 ? '#35e0ff' : '#ff4db8'
@@ -145,25 +154,25 @@ export function Token() {
 
             <div className="flex items-center gap-2">
               <IndexAvatar
-                address={meta.creatorAddress ?? addr}
-                symbol={(meta.creatorHandle ?? 'x').replace(/^@/, '')}
+                address={meta.creatorAddress ?? creator.address ?? addr}
+                symbol={creator.kind === 'address' ? 'x' : creator.label.replace(/^@/, '')}
                 imageUrl={meta.creatorAvatarUrl}
                 size={22}
               />
               <span className="text-xs text-ink-faint">
                 created by{' '}
-                {meta.xUrl ? (
+                {creator.xUrl ? (
                   <a
-                    href={meta.xUrl}
+                    href={creator.xUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-ink-dim underline-offset-4 hover:text-cyan hover:underline"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    {meta.creatorHandle}
+                    {creator.label}
                   </a>
                 ) : (
-                  <span className="text-ink-dim">{meta.creatorHandle ?? shortAddr(addr)}</span>
+                  <span className="text-ink-dim">{creator.label}</span>
                 )}
               </span>
             </div>
@@ -227,7 +236,7 @@ export function Token() {
             <HoldingsView holdings={ix.holdings} chainId={chainId} />
           </div>
           <div className="space-y-4 border-t border-white/10 p-4 sm:p-6 lg:border-t-0">
-            <TradePanel ix={ix} sig={sig} buyInk={buyInk} />
+            {TRADING_ENABLED && <TradePanel ix={ix} sig={sig} buyInk={buyInk} />}
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
               <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">Contract</div>

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getAddress, isAddress, type Address } from 'viem'
+import { useAccount } from 'wagmi'
 import { useActiveChainId } from '../../lib/chain/active-chain'
 import { chainCfg } from '../../lib/chain/chains'
 import { clientFor } from '../../lib/chain/rpc'
@@ -19,12 +20,12 @@ import {
 } from '../../lib/spectrum/weights'
 import { tokenVisual } from '../../lib/spectrum/token-meta'
 import { formatUsdCompact, shortAddr } from '../../lib/spectrum/format'
-import type { NavInput } from '../../lib/spectrum/history'
+import { resolveCreator } from '../../lib/spectrum/creator'
 import { useAllIndexes } from '../../lib/spectrum/hooks'
 import { AssetLogo } from '../AssetLogo'
 import { BasketBento, type BentoItem } from '../BasketBento'
-import { BacktestChart } from './BacktestChart'
 import { DeployPortal } from './DeployPortal'
+import { useDeployIndex } from '../../lib/spectrum/use-deploy'
 import { SECTORS, SECTOR_COLOR, type Sector } from '../../lib/spectrum/sectors'
 
 interface BuilderAsset {
@@ -112,7 +113,9 @@ function Step({
   return (
     <section
       ref={ref}
-      className="rounded-2xl card-surface p-5 backdrop-blur-md sm:p-6"
+      id={`step-${index}`}
+      aria-labelledby={`step-${index}-title`}
+      className="scroll-mt-24 rounded-2xl card-surface p-5 backdrop-blur-md sm:p-6"
       style={{
         opacity: entered ? 1 : 0,
         transform: entered ? 'none' : 'translateY(18px)',
@@ -121,6 +124,7 @@ function Step({
     >
       <div className="flex items-center gap-3">
         <span
+          aria-hidden
           className="grid h-8 w-8 shrink-0 place-items-center rounded-full font-num text-sm font-bold tabular-nums"
           style={
             complete
@@ -131,8 +135,12 @@ function Step({
           {complete ? '✓' : index}
         </span>
         <div className="min-w-0">
-          <div className="font-display text-lg font-bold uppercase tracking-tight text-ink">{title}</div>
-          {subtitle && <div className="mt-0.5 font-mono text-[13px] leading-snug text-ink-dim">{subtitle}</div>}
+          <h2 id={`step-${index}-title`} className="font-display text-lg font-bold uppercase tracking-tight text-ink">
+            <span className="sr-only">{`Step ${index}: `}</span>
+            {title}
+            {complete && <span className="sr-only"> (complete)</span>}
+          </h2>
+          {subtitle && <div className="mt-1 font-mono text-[15px] leading-snug text-ink-dim">{subtitle}</div>}
         </div>
       </div>
       <div className="mt-5">{children}</div>
@@ -140,9 +148,76 @@ function Step({
   )
 }
 
+interface StepState {
+  n: number
+  label: string
+  done: boolean
+}
+
+// Progress rail across the 5 stages: an overview + a keyboard-accessible jump-to-step
+// (anchor links to each Step's id). Revealed steps are links; upcoming ones are inert.
+function Stepper({ steps, maxStep, current }: { steps: StepState[]; maxStep: number; current: number }) {
+  return (
+    <nav aria-label="Launch progress" className="rounded-2xl card-surface px-3 py-2.5 backdrop-blur-md sm:px-4">
+      <ol className="flex items-center">
+        {steps.map((s, i) => {
+          const revealed = s.n <= maxStep
+          const isCurrent = s.n === current
+          const node = (
+            <span className="flex items-center gap-2">
+              <span
+                aria-hidden
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-full font-num text-xs font-bold tabular-nums transition-colors"
+                style={
+                  s.done
+                    ? { background: 'rgba(52,214,196,0.16)', color: '#34d6c4', boxShadow: 'inset 0 0 0 1px rgba(52,214,196,0.45)' }
+                    : isCurrent
+                      ? { background: 'rgba(53,224,255,0.14)', color: '#35e0ff', boxShadow: 'inset 0 0 0 1px rgba(53,224,255,0.5)' }
+                      : { background: 'rgba(255,255,255,0.05)', color: revealed ? '#8b8b9e' : '#565669', boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.1)' }
+                }
+              >
+                {s.done ? '✓' : s.n}
+              </span>
+              <span
+                className={`hidden font-mono text-[11px] uppercase tracking-[0.15em] sm:inline ${
+                  isCurrent ? 'text-ink' : revealed ? 'text-ink-dim' : 'text-ink-faint'
+                }`}
+              >
+                {s.label}
+              </span>
+            </span>
+          )
+          const srText = `Step ${s.n}: ${s.label}${s.done ? ', complete' : isCurrent ? ', current' : !revealed ? ', upcoming' : ''}. `
+          return (
+            <li key={s.n} className="flex flex-1 items-center last:flex-none">
+              {revealed ? (
+                <a
+                  href={`#step-${s.n}`}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  className="rounded-full transition-opacity hover:opacity-80"
+                >
+                  <span className="sr-only">{srText}</span>
+                  {node}
+                </a>
+              ) : (
+                <span>
+                  <span className="sr-only">{srText}</span>
+                  {node}
+                </span>
+              )}
+              {i < steps.length - 1 && <span aria-hidden className="mx-2 h-px flex-1 bg-white/10 sm:mx-3" />}
+            </li>
+          )
+        })}
+      </ol>
+    </nav>
+  )
+}
+
 export function IndexBuilder() {
   const chainId = useActiveChainId()
   const cfg = useMemo(() => chainCfg(chainId), [chainId])
+  const { address: account } = useAccount()
 
   const [assets, setAssets] = useState<BuilderAsset[]>([])
   const [weights, setWeights] = useState<number[]>([])
@@ -155,8 +230,32 @@ export function IndexBuilder() {
   const [tagline, setTagline] = useState('')
   const [thesis, setThesis] = useState('')
   const [horizon, setHorizon] = useState<string>('')
+  const [xHandle, setXHandle] = useState('')
+  const [creatorName, setCreatorName] = useState('')
+
+  // Live preview of who the index will be attributed to: X handle → name → the
+  // connected deploy address. Drives the builder hint + the deploy reveal.
+  const creatorPreview = useMemo(
+    () => resolveCreator({ handle: xHandle, name: creatorName, deployer: account ?? null }),
+    [xHandle, creatorName, account],
+  )
   const [deploying, setDeploying] = useState(false)
+  const deploy = useDeployIndex(chainId)
+  // Open the ceremony + kick off the read-only prepare (mine + price + simulate). The
+  // on-chain broadcast stays gated behind DEPLOY_ENABLED inside the hook. Shared by the
+  // Step-5 button and the bottom-of-page launch banner.
+  const startDeploy = useCallback(() => {
+    setDeploying(true)
+    void deploy.prepare({
+      name,
+      symbol,
+      assets: assets.map((a) => ({ address: a.address, decimals: a.decimals, route: a.route })),
+      weights,
+    })
+  }, [deploy, name, symbol, assets, weights])
   const [basketConfirmed, setBasketConfirmed] = useState(false)
+  // Deployer self-attestation that gates the launch CTA (placeholder legal copy in Step 5).
+  const [acknowledged, setAcknowledged] = useState(false)
   const [maxStep, setMaxStep] = useState(1)
 
   useEffect(() => {
@@ -248,8 +347,6 @@ export function IndexBuilder() {
   // Derived views
   const total = sum(weights)
   const bentoItems: BentoItem[] = assets.map((a, i) => ({ symbol: a.symbol, address: a.address, weightPct: weights[i] ?? 0, chainId }))
-  const navInputs: NavInput[] = assets.map((a, i) => ({ address: a.address, weight: weights[i] ?? 0 }))
-  const symbolsMap = useMemo(() => Object.fromEntries(assets.map((a) => [a.address.toLowerCase(), a.symbol])), [assets])
 
   // Prismatic blend from the basket's brand colors (avatar + ambient glow).
   const blend = useMemo(() => assets.map((a) => tokenVisual(a.symbol, a.address).color), [assets])
@@ -262,6 +359,8 @@ export function IndexBuilder() {
   const nameValid = name.trim().length >= 2
   const enoughAssets = assets.length >= 2
   const canDeploy = weightsValid && symbolValid && nameValid && enoughAssets
+  // The launch CTA also requires the deployer acknowledgment (Step 5 checkbox).
+  const readyToDeploy = canDeploy && acknowledged
 
   // Progressive reveal: the highest stage the basket has earned (monotonic, so editing
   // an earlier step never collapses a later one).
@@ -271,9 +370,20 @@ export function IndexBuilder() {
     setMaxStep((m) => Math.max(m, level))
   }, [level])
 
+  const stepState: StepState[] = [
+    { n: 1, label: 'Assets', done: enoughAssets },
+    { n: 2, label: 'Weights', done: enoughAssets && weightsValid },
+    { n: 3, label: 'Review', done: basketConfirmed },
+    { n: 4, label: 'Name', done: nameValid && symbolValid },
+    { n: 5, label: 'Deploy', done: readyToDeploy },
+  ]
+  const currentStep = stepState.find((s) => s.n <= maxStep && !s.done)?.n ?? Math.min(maxStep, 5)
+
   return (
     <>
       <div className="mx-auto max-w-5xl space-y-6">
+        <Stepper steps={stepState} maxStep={maxStep} current={currentStep} />
+
         {/* ── 1 · Add assets ─────────────────────────────────────────── */}
         <Step
           index={1}
@@ -288,13 +398,19 @@ export function IndexBuilder() {
               void add(input)
             }}
             className="flex gap-2"
+            aria-busy={adding}
           >
+            <label htmlFor="asset-address" className="sr-only">
+              Token contract address
+            </label>
             <input
+              id="asset-address"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Paste a token address (0x…)"
               spellCheck={false}
               autoComplete="off"
+              aria-describedby="asset-help"
               className="min-w-0 flex-1 rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 font-mono text-sm text-ink placeholder:text-ink-dim focus:border-cyan/60 focus:outline-none"
             />
             <button
@@ -306,8 +422,12 @@ export function IndexBuilder() {
             </button>
           </form>
 
-          {error && <p className="mt-2.5 font-mono text-[13px] leading-relaxed text-alert">{error}</p>}
-          <p className="mt-2.5 font-mono text-[13px] leading-relaxed text-ink-dim">
+          {error && (
+            <p role="alert" className="mt-2.5 font-mono text-sm leading-relaxed text-alert">
+              {error}
+            </p>
+          )}
+          <p id="asset-help" className="mt-2.5 font-mono text-sm leading-relaxed text-ink-dim">
             We find the deepest Uniswap v2/v3/v4 pool automatically. Aerodrome-only tokens can't be used (no hook support).
           </p>
 
@@ -322,17 +442,18 @@ export function IndexBuilder() {
                       key={s.address}
                       type="button"
                       disabled={adding}
+                      aria-label={`Add ${s.symbol} to basket`}
                       onClick={() => void add(s.address, s.symbol)}
-                      className="group relative flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] py-1.5 pl-1.5 pr-3 backdrop-blur transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                      className="group relative flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] py-2 pl-2 pr-4 backdrop-blur transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
                     >
                       <span
                         aria-hidden
                         className="pointer-events-none absolute inset-0 rounded-full opacity-0 transition-opacity duration-200 group-hover:opacity-100"
                         style={{ boxShadow: `0 0 0 1px ${color}66, 0 10px 26px -10px ${color}` }}
                       />
-                      <AssetLogo address={s.address} symbol={s.symbol} chainId={chainId} size={22} />
-                      <span className="font-display text-sm font-bold uppercase tracking-wide text-ink">{s.symbol}</span>
-                      <span className="font-num text-sm leading-none" style={{ color }}>
+                      <AssetLogo address={s.address} symbol={s.symbol} chainId={chainId} size={26} />
+                      <span className="font-display text-base font-bold uppercase tracking-wide text-ink">{s.symbol}</span>
+                      <span aria-hidden className="font-num text-base leading-none" style={{ color }}>
                         +
                       </span>
                     </button>
@@ -359,7 +480,7 @@ export function IndexBuilder() {
               <button
                 type="button"
                 onClick={equalize}
-                className="rounded-md border border-white/12 px-2.5 py-1 font-mono text-[11px] uppercase tracking-wide text-ink-dim transition-colors hover:border-white/30 hover:text-ink"
+                className="rounded-md border border-white/12 px-2.5 py-1 font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim transition-colors hover:border-white/30 hover:text-ink"
               >
                 Equal weight
               </button>
@@ -391,7 +512,7 @@ export function IndexBuilder() {
                         {a.venueLabel.replace('Uniswap ', '')}
                       </span>
                     </div>
-                    <div className="mt-0.5 truncate font-mono text-[11px] text-ink-dim">
+                    <div className="mt-0.5 truncate font-mono text-xs text-ink-dim">
                       {a.depthUsd != null ? `~${formatUsdCompact(a.depthUsd)} liquidity` : shortAddr(a.address)}
                       {a.warnings.length > 0 && <span className="text-amber"> · shallow pool</span>}
                     </div>
@@ -431,7 +552,7 @@ export function IndexBuilder() {
             })}
           </ul>
 
-          <div className="mt-3.5 flex h-2.5 w-full overflow-hidden rounded-full bg-white/5">
+          <div aria-hidden className="mt-3.5 flex h-2.5 w-full overflow-hidden rounded-full bg-white/5">
             {assets.map((a, i) => (
               <div
                 key={a.address}
@@ -445,45 +566,41 @@ export function IndexBuilder() {
             <span className="text-ink-dim">
               Min {MIN}% per asset · type or ±{STEP}%
             </span>
-            <span className={total === CAP ? 'text-teal' : 'text-alert'}>{total === CAP ? '✓ Balanced · 100%' : `Σ ${total}%`}</span>
+            <span aria-live="polite" className={total === CAP ? 'text-teal' : 'text-alert'}>
+              {total === CAP ? '✓ Balanced · 100%' : `Σ ${total}%`}
+            </span>
           </div>
         </Step>
 
-        {/* ── 3 · Projected returns ──────────────────────────────────── */}
+        {/* ── 3 · Review & confirm basket ────────────────────────────── */}
         <Step
           index={3}
-          title="Projected returns"
-          subtitle="How this basket would have tracked. Tweak assets and weights above to reshape it."
+          title="Review basket"
+          subtitle="Lock in your basket before naming it. Tweak assets and weights above to reshape it."
           show={maxStep >= 3}
           complete={basketConfirmed}
         >
-          <div className="space-y-6">
-            <BacktestChart bare chainId={chainId} assets={navInputs} symbol={symbol} symbols={symbolsMap} />
-
-            <div className="border-t border-white/10 pt-5">
-              {basketConfirmed ? (
-                <div className="flex items-center justify-center gap-2 font-mono text-[12px] uppercase tracking-[0.15em] text-teal">
-                  <span className="grid h-5 w-5 place-items-center rounded-full bg-teal/15 text-[10px]">✓</span>
-                  Basket confirmed — name it below
-                </div>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    disabled={!(enoughAssets && weightsValid)}
-                    onClick={() => setBasketConfirmed(true)}
-                    className="w-full rounded-xl py-3.5 font-display text-base font-bold uppercase tracking-[0.15em] text-black transition-transform hover:enabled:scale-[1.01] disabled:cursor-not-allowed"
-                    style={enoughAssets && weightsValid ? { background: 'linear-gradient(90deg,#ff9248,#ff4db8,#35e0ff)' } : { background: 'rgba(255,255,255,0.08)', color: '#565669' }}
-                  >
-                    Confirm basket
-                  </button>
-                  {!(enoughAssets && weightsValid) && (
-                    <p className="mt-2 text-center font-mono text-[11px] text-ink-dim">Add at least 2 assets, balanced to 100%.</p>
-                  )}
-                </>
-              )}
+          {basketConfirmed ? (
+            <div className="flex items-center justify-center gap-2 font-mono text-[12px] uppercase tracking-[0.15em] text-teal">
+              <span className="grid h-5 w-5 place-items-center rounded-full bg-teal/15 text-[10px]">✓</span>
+              Basket confirmed — name it below
             </div>
-          </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={!(enoughAssets && weightsValid)}
+                onClick={() => setBasketConfirmed(true)}
+                className="w-full rounded-xl py-3.5 font-display text-base font-bold uppercase tracking-[0.15em] text-black transition-transform hover:enabled:scale-[1.01] disabled:cursor-not-allowed"
+                style={enoughAssets && weightsValid ? { background: 'linear-gradient(90deg,#ff9248,#ff4db8,#35e0ff)' } : { background: 'rgba(255,255,255,0.08)', color: '#565669' }}
+              >
+                Confirm basket
+              </button>
+              {!(enoughAssets && weightsValid) && (
+                <p className="mt-2 text-center font-mono text-xs text-ink-dim">Add at least 2 assets, balanced to 100%.</p>
+              )}
+            </>
+          )}
         </Step>
 
         {/* ── 4 · Name your index ────────────────────────────────────── */}
@@ -495,7 +612,7 @@ export function IndexBuilder() {
           complete={nameValid && symbolValid}
         >
           <div className="mb-6">
-            <div className="font-mono text-[11px] uppercase tracking-wide text-ink-dim">
+            <div className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">
               Your basket · {assets.length} assets · starts at $1.00
             </div>
             <div className="mt-2.5">
@@ -515,23 +632,31 @@ export function IndexBuilder() {
               <div className="relative shrink-0">
                 <div className="absolute -inset-1 rounded-2xl opacity-60 blur-md" style={{ background: avatarGrad }} aria-hidden />
                 <div className="relative grid h-14 w-14 place-items-center rounded-2xl ring-1 ring-white/20" style={{ background: avatarGrad }}>
-                  <span className="font-display text-xl font-bold text-black/75">◆</span>
+                  <span aria-hidden className="font-display text-xl font-bold text-black/75">◆</span>
                 </div>
               </div>
               <div className="min-w-0 flex-1 space-y-2">
+                <label htmlFor="index-name" className="sr-only">
+                  Index name
+                </label>
                 <input
+                  id="index-name"
                   value={name}
                   onChange={(e) => setName(e.target.value.slice(0, 42))}
                   placeholder="Index name (e.g. Base AI Index)"
-                  className="w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 font-display text-base text-ink placeholder:text-ink-dim focus:border-cyan/60 focus:outline-none"
+                  className="w-full rounded-xl border border-white/12 bg-black/40 px-4 py-3 font-display text-lg text-ink placeholder:text-ink-dim transition-colors focus:border-cyan/60 focus:bg-black/50 focus:outline-none focus:ring-2 focus:ring-cyan/15"
                 />
-                <div className="flex items-center rounded-lg border border-white/12 bg-black/30 px-3 focus-within:border-cyan/60">
-                  <span className="font-num text-base text-ink-dim">$</span>
+                <label htmlFor="index-symbol" className="sr-only">
+                  Ticker symbol
+                </label>
+                <div className="flex items-center rounded-xl border border-white/12 bg-black/40 px-4 transition-colors focus-within:border-cyan/60 focus-within:bg-black/50 focus-within:ring-2 focus-within:ring-cyan/15">
+                  <span aria-hidden className="font-num text-lg text-ink-dim">$</span>
                   <input
+                    id="index-symbol"
                     value={symbol}
                     onChange={(e) => setSymbol(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 11))}
                     placeholder="SYMBOL"
-                    className="w-full bg-transparent py-2.5 font-display text-base font-bold uppercase tracking-wide text-ink placeholder:text-ink-dim focus:outline-none"
+                    className="w-full bg-transparent py-3 font-display text-lg font-bold uppercase tracking-wide text-ink placeholder:text-ink-dim focus:outline-none"
                   />
                 </div>
               </div>
@@ -539,8 +664,8 @@ export function IndexBuilder() {
           </div>
 
           <div className="mt-5">
-            <div className="font-mono text-[11px] uppercase tracking-wide text-ink-dim">Sector</div>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div id="sector-label" className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">Sector</div>
+            <div role="group" aria-labelledby="sector-label" className="mt-2 flex flex-wrap gap-2">
               {SECTORS.map((s) => {
                 const on = sector === s
                 const c = SECTOR_COLOR[s]
@@ -548,8 +673,9 @@ export function IndexBuilder() {
                   <button
                     key={s}
                     type="button"
+                    aria-pressed={on}
                     onClick={() => setSector(on ? '' : s)}
-                    className="rounded-full border px-3 py-1 font-display text-xs font-bold uppercase tracking-wide transition-colors"
+                    className="rounded-full border px-4 py-1.5 font-display text-sm font-bold uppercase tracking-wide transition-colors"
                     style={on ? { borderColor: c, background: `${c}24`, color: '#e8e8f0' } : { borderColor: 'rgba(255,255,255,0.12)', color: '#8b8b9e' }}
                   >
                     {s}
@@ -560,40 +686,44 @@ export function IndexBuilder() {
           </div>
 
           <div className="mt-5">
-            <label className="font-mono text-[11px] uppercase tracking-wide text-ink-dim">Tagline</label>
+            <label htmlFor="tagline" className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">Tagline</label>
             <input
+              id="tagline"
               value={tagline}
               onChange={(e) => setTagline(e.target.value.slice(0, 48))}
               placeholder="e.g. The AI economy"
-              className="mt-1.5 w-full rounded-lg border border-white/12 bg-black/30 px-3 py-2 font-display text-sm text-ink placeholder:text-ink-dim focus:border-cyan/60 focus:outline-none"
+              className="mt-2 w-full rounded-xl border border-white/12 bg-black/40 px-4 py-3 font-display text-base text-ink placeholder:text-ink-dim transition-colors focus:border-cyan/60 focus:bg-black/50 focus:outline-none focus:ring-2 focus:ring-cyan/15"
             />
           </div>
 
           <div className="mt-5">
             <div className="flex items-center justify-between">
-              <label className="font-mono text-[11px] uppercase tracking-wide text-ink-dim">Thesis</label>
-              <span className="font-mono text-[11px] text-ink-dim">{thesis.length}/400</span>
+              <label htmlFor="thesis" className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">Thesis</label>
+              <span aria-hidden className="font-mono text-xs text-ink-dim">{thesis.length}/400</span>
             </div>
             <textarea
+              id="thesis"
               value={thesis}
               onChange={(e) => setThesis(e.target.value.slice(0, 400))}
               rows={4}
+              maxLength={400}
               placeholder="Why this basket, why these weights, and over what horizon."
-              className="mt-1.5 w-full resize-none rounded-lg border border-white/12 bg-black/30 px-3 py-2 font-mono text-[13px] leading-relaxed text-ink placeholder:text-ink-dim focus:border-cyan/60 focus:outline-none"
+              className="mt-2 w-full resize-none rounded-xl border border-white/12 bg-black/40 px-4 py-3 font-mono text-sm leading-relaxed text-ink placeholder:text-ink-dim transition-colors focus:border-cyan/60 focus:bg-black/50 focus:outline-none focus:ring-2 focus:ring-cyan/15"
             />
           </div>
 
           <div className="mt-5">
-            <div className="font-mono text-[11px] uppercase tracking-wide text-ink-dim">Time horizon</div>
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div id="horizon-label" className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">Time horizon</div>
+            <div role="group" aria-labelledby="horizon-label" className="mt-2 flex flex-wrap gap-2">
               {HORIZONS.map((h) => {
                 const on = horizon === h
                 return (
                   <button
                     key={h}
                     type="button"
+                    aria-pressed={on}
                     onClick={() => setHorizon(on ? '' : h)}
-                    className={`rounded-full border px-3 py-1 font-mono text-xs uppercase tracking-wide transition-colors ${
+                    className={`rounded-full border px-4 py-1.5 font-mono text-sm uppercase tracking-wide transition-colors ${
                       on ? 'border-cyan/60 bg-cyan/10 text-cyan' : 'border-white/12 text-ink-dim hover:border-white/30 hover:text-ink'
                     }`}
                   >
@@ -603,17 +733,55 @@ export function IndexBuilder() {
               })}
             </div>
           </div>
+
+          <div className="mt-5">
+            <div id="creator-label" className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">Creator</div>
+            <div role="group" aria-labelledby="creator-label" className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label htmlFor="creator-handle" className="sr-only">
+                X / Twitter handle
+              </label>
+              <input
+                id="creator-handle"
+                value={xHandle}
+                onChange={(e) => setXHandle(e.target.value.slice(0, 40))}
+                placeholder="@handle (X / Twitter)"
+                autoComplete="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                aria-describedby="creator-hint"
+                className="w-full rounded-xl border border-white/12 bg-black/40 px-4 py-3 font-display text-base text-ink placeholder:text-ink-dim transition-colors focus:border-cyan/60 focus:bg-black/50 focus:outline-none focus:ring-2 focus:ring-cyan/15"
+              />
+              <label htmlFor="creator-name" className="sr-only">
+                Creator display name
+              </label>
+              <input
+                id="creator-name"
+                value={creatorName}
+                onChange={(e) => setCreatorName(e.target.value.slice(0, 40))}
+                placeholder="or a display name"
+                aria-describedby="creator-hint"
+                className="w-full rounded-xl border border-white/12 bg-black/40 px-4 py-3 font-display text-base text-ink placeholder:text-ink-dim transition-colors focus:border-cyan/60 focus:bg-black/50 focus:outline-none focus:ring-2 focus:ring-cyan/15"
+              />
+            </div>
+            <p id="creator-hint" className="mt-1.5 font-mono text-xs text-ink-dim">
+              {creatorPreview.kind === 'address'
+                ? account
+                  ? `Leave blank to attribute to your deploy address (${shortAddr(account)}).`
+                  : 'Leave blank to attribute to your deploy address once your wallet is connected.'
+                : `Attributed to ${creatorPreview.label}.`}
+            </p>
+          </div>
         </Step>
 
         {/* ── 5 · Deploy ─────────────────────────────────────────────── */}
-        <Step index={5} title="Deploy" subtitle="Mint your index token onchain." show={maxStep >= 5} complete={canDeploy}>
+        <Step index={5} title="Deploy" subtitle="Mint your index token onchain." show={maxStep >= 5} complete={readyToDeploy}>
           <div className="flex items-center gap-2.5">
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl ring-1 ring-white/20" style={{ background: avatarGrad }}>
-              <span className="font-display text-base font-bold text-black/75">◆</span>
+              <span aria-hidden className="font-display text-base font-bold text-black/75">◆</span>
             </div>
             <div className="min-w-0">
               <div className="truncate font-display text-base font-bold uppercase tracking-tight text-ink">{name || 'Your index'}</div>
-              <div className="font-mono text-[11px] uppercase tracking-wide text-ink-dim">
+              <div className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">
                 {symbol ? `$${symbol} · ` : ''}
                 {assets.length} assets · starts at $1.00
               </div>
@@ -627,26 +795,63 @@ export function IndexBuilder() {
             <Check ok={symbolValid}>Ticker set</Check>
           </ul>
 
+          {/* Deployer self-attestation — gates the launch CTA below. PLACEHOLDER legal
+              copy; finalize with counsel before deploy is enabled on a public build. */}
+          <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(e) => setAcknowledged(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-cyan"
+            />
+            <span className="text-xs leading-relaxed text-ink-dim">
+              I’m the creator and issuer of this index and responsible for my own legal and marketing
+              obligations. Spectrum is software — not financial, investment, legal, or tax advice — and is
+              provided without warranty.
+            </span>
+          </label>
+        </Step>
+
+        {/* Bottom-of-flow launch banner — the big, page-width deploy action. Routes
+            through the same gated flow as Step 5 (startDeploy → ceremony); the on-chain
+            broadcast stays behind DEPLOY_ENABLED, so this never launches on its own. */}
+        <div
+          className="flex flex-col items-center gap-5 rounded-2xl p-6 text-center sm:flex-row sm:justify-between sm:p-8 sm:text-left"
+          style={{ background: readyToDeploy ? 'linear-gradient(90deg,#ff9248,#ff4db8,#35e0ff)' : 'rgba(255,255,255,0.06)' }}
+        >
+          <div className={readyToDeploy ? 'text-black' : 'text-ink-dim'}>
+            <div className="font-display text-2xl font-bold uppercase leading-none tracking-tight sm:text-3xl">
+              Ready to launch {symbol ? `$${symbol}` : 'your index'}?
+            </div>
+            <div className="mt-2 font-mono text-[13px] uppercase tracking-[0.15em] opacity-80">
+              {assets.length} {assets.length === 1 ? 'asset' : 'assets'} · starts at $1.00 NAV
+            </div>
+          </div>
           <button
             type="button"
-            disabled={!canDeploy}
-            onClick={() => setDeploying(true)}
-            className="mt-4 w-full rounded-xl py-3.5 font-display text-base font-bold uppercase tracking-[0.15em] text-black transition-transform hover:enabled:scale-[1.01] disabled:cursor-not-allowed"
-            style={canDeploy ? { background: 'linear-gradient(90deg,#ff9248,#ff4db8,#35e0ff)' } : { background: 'rgba(255,255,255,0.08)', color: '#565669' }}
+            disabled={!readyToDeploy}
+            onClick={startDeploy}
+            className="w-full shrink-0 rounded-xl bg-black px-10 py-4 font-display text-lg font-bold uppercase tracking-[0.2em] text-white transition-transform hover:enabled:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
-            Continue to deploy
+            Deploy →
           </button>
-          {!canDeploy && (
-            <p className="mt-2 text-center font-mono text-[11px] text-ink-dim">Complete the checklist above to deploy.</p>
-          )}
-        </Step>
+        </div>
+        {canDeploy && !acknowledged && (
+          <p className="text-center font-mono text-xs text-ink-dim">
+            Check the creator acknowledgment in step 5 to enable deploy.
+          </p>
+        )}
       </div>
 
       <DeployPortal
         open={deploying}
-        onClose={() => setDeploying(false)}
+        onClose={() => {
+          setDeploying(false)
+          deploy.reset()
+        }}
         onStartOver={() => {
           setDeploying(false)
+          deploy.reset()
           setAssets([])
           setWeights([])
           setName('')
@@ -655,7 +860,10 @@ export function IndexBuilder() {
           setTagline('')
           setThesis('')
           setHorizon('')
+          setXHandle('')
+          setCreatorName('')
           setBasketConfirmed(false)
+          setAcknowledged(false)
           setMaxStep(1)
         }}
         chainId={chainId}
@@ -667,8 +875,22 @@ export function IndexBuilder() {
         sectorColor={sector ? SECTOR_COLOR[sector] : undefined}
         tagline={tagline || undefined}
         thesis={thesis || undefined}
+        creatorHandle={xHandle || undefined}
+        creatorName={creatorName || undefined}
+        creatorAddress={account}
         assets={assets.map((a) => ({ address: a.address, symbol: a.symbol }))}
         bentoItems={bentoItems}
+        deploy={{
+          status: deploy.status,
+          attempts: deploy.attempts,
+          predicted: deploy.predicted,
+          priceWei: deploy.priceWei,
+          txHash: deploy.txHash,
+          token: deploy.token,
+          error: deploy.error,
+          enabled: deploy.enabled,
+          onSign: () => void deploy.broadcast(),
+        }}
       />
     </>
   )
@@ -709,12 +931,16 @@ function Check({ ok, children }: { ok: boolean; children: ReactNode }) {
   return (
     <li className="flex items-center gap-2 font-mono text-xs">
       <span
+        aria-hidden
         className="grid h-4 w-4 place-items-center rounded-full text-[9px]"
         style={{ background: ok ? 'rgba(52,214,196,0.15)' : 'rgba(255,255,255,0.06)', color: ok ? '#34d6c4' : '#565669' }}
       >
         {ok ? '✓' : '○'}
       </span>
-      <span className="text-ink-dim">{children}</span>
+      <span className="text-ink-dim">
+        <span className="sr-only">{ok ? 'Done: ' : 'To do: '}</span>
+        {children}
+      </span>
     </li>
   )
 }

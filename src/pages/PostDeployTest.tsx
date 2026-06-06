@@ -6,7 +6,8 @@ import { readableInk, tokenVisual } from '../lib/spectrum/token-meta'
 import { getIndexMeta } from '../lib/spectrum/metadata'
 import { SECTOR_COLOR, sectorOf } from '../lib/spectrum/sectors'
 import { indexSignatureColor } from '../lib/spectrum/signature'
-import { formatNav, formatPct, formatUsdCompact, shortAddr } from '../lib/spectrum/format'
+import { formatNav, formatPct, formatUsdCompact } from '../lib/spectrum/format'
+import { resolveCreatorFromMeta } from '../lib/spectrum/creator'
 import { IndexAvatar } from '../components/IndexAvatar'
 import { BasketBento } from '../components/BasketBento'
 import { ChainBadge } from '../components/ChainBadge'
@@ -143,14 +144,14 @@ function MockIndexPage({ ix, show }: { ix: IndexSummary; show: boolean }) {
 
             <div className="flex items-center gap-2" style={stage(610)}>
               <IndexAvatar
-                address={meta.creatorAddress ?? ix.address}
+                address={meta.creatorAddress ?? resolveCreatorFromMeta(meta, ix.deployer, ix.address).address ?? ix.address}
                 symbol={(meta.creatorHandle ?? 'x').replace(/^@/, '')}
                 imageUrl={meta.creatorAvatarUrl}
                 size={22}
               />
               <span className="text-xs text-ink-faint">
                 created by{' '}
-                <span className="text-ink-dim">{meta.creatorHandle ?? shortAddr(ix.address)}</span>
+                <span className="text-ink-dim">{resolveCreatorFromMeta(meta, ix.deployer, ix.address).label}</span>
               </span>
             </div>
           </div>

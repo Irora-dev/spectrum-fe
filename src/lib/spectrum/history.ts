@@ -204,8 +204,8 @@ function sampleAt(s: NavPoint[], t: number): number {
 
 // Weight-driven, normalized basket index: idx(t0) = 1 and idx(t) = Σ wᵢ·priceᵢ(t)/priceᵢ(t0).
 // Reference grid = the densest constituent's timestamps. Returns null if no usable
-// constituent series. Shared by the live NAV reconstruction (anchor the END to the
-// current NAV) and the launch backtest (anchor the START to $1).
+// constituent series. Used by the live NAV reconstruction (combineNavHistory anchors
+// the END to the current navPerToken).
 function weightedBasketIndex(
   assets: NavInput[],
   seriesByAddr: Map<string, NavPoint[]>,
@@ -254,20 +254,6 @@ export function combineNavHistory(
   const idxLast = r.idx[r.idx.length - 1] || 1
   const scale = idxLast > 0 ? navPerTokenNow / idxLast : navPerTokenNow
   return r.times.map((t, i) => ({ time: t, value: r.idx[i] * scale }))
-}
-
-// Backtest a HYPOTHETICAL new basket: anchor the FIRST point to `startNav` ($1, the
-// inception NAV of every Spectrum index) so the curve reads "if this basket had
-// launched `range` ago at $1, here's how it would have moved." idx(t0) = 1, so
-// value(t) = startNav · idx(t). Returns are independent of the absolute scaling.
-export function backtestNavHistory(
-  assets: NavInput[],
-  seriesByAddr: Map<string, NavPoint[]>,
-  startNav = 1,
-): NavPoint[] {
-  const r = weightedBasketIndex(assets, seriesByAddr)
-  if (!r) return []
-  return r.times.map((t, i) => ({ time: t, value: r.idx[i] * startNav }))
 }
 
 export interface RangeReturn {

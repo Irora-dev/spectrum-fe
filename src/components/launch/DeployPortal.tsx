@@ -1,6 +1,10 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { formatEther } from 'viem'
 import { tokenVisual } from '../../lib/spectrum/token-meta'
+import { resolveCreator } from '../../lib/spectrum/creator'
+import { chainCfg } from '../../lib/chain/chains'
+import type { DeployStatus } from '../../lib/spectrum/use-deploy'
 import { BasketBento, type BentoItem } from '../BasketBento'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -90,9 +94,31 @@ export interface DeployPortalProps {
   sectorColor?: string
   tagline?: string
   thesis?: string
+  creatorHandle?: string
+  creatorName?: string
+  creatorAddress?: string
   assets: { address: string; symbol: string }[]
   bentoItems: BentoItem[]
+  /** Live on-chain deploy state (from useDeployIndex). Omit for a pure-preview ceremony. */
+  deploy?: DeployPortalDeploy
 }
+
+// Narrow view of useDeployIndex the reveal card renders — the builder maps the hook to
+// this so the ceremony stays decoupled from the deploy internals.
+export interface DeployPortalDeploy {
+  status: DeployStatus
+  attempts: number
+  predicted: string | null
+  priceWei: bigint | null
+  txHash: string | null
+  token: string | null
+  error: string | null
+  /** DEPLOY_ENABLED && wallet connected on this chain — gates the sign button. */
+  enabled: boolean
+  onSign: () => void
+}
+
+const shortHex = (h?: string | null) => (h ? `${h.slice(0, 6)}…${h.slice(-4)}` : '—')
 
 export function DeployPortal({
   open,
@@ -106,9 +132,14 @@ export function DeployPortal({
   sectorColor,
   tagline,
   thesis,
+  creatorHandle,
+  creatorName,
+  creatorAddress,
   assets,
   bentoItems,
+  deploy,
 }: DeployPortalProps) {
+  const creator = resolveCreator({ handle: creatorHandle, name: creatorName, deployer: creatorAddress })
   const orbTokens = assets.slice(0, 14)
   const [revealed, setRevealed] = useState(false)
   const [runId, setRunId] = useState(0)
@@ -502,6 +533,21 @@ export function DeployPortal({
                   <span className="h-1.5 w-1.5 rounded-full bg-teal" />
                   <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-teal">Deployed · ready to trade</span>
                 </div>
+                <div className="relative mt-2 font-mono text-[11px] text-ink-dim">
+                  created by{' '}
+                  {creator.xUrl ? (
+                    <a
+                      href={creator.xUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-ink underline-offset-4 hover:text-cyan hover:underline"
+                    >
+                      {creator.label}
+                    </a>
+                  ) : (
+                    <span className="text-ink">{creator.label}</span>
+                  )}
+                </div>
               </div>
 
               {(tagline || thesis) && (
@@ -516,7 +562,66 @@ export function DeployPortal({
               </div>
 
               <div className="mt-4 px-6 font-mono text-[10px] leading-relaxed text-ink-dim">
-                {assets.length} assets · starts at $1.00 NAV. The on-chain step (CREATE2 salt → 0x88 hook, Dutch-auction commit, sign) is being wired up next — this is a preview of the moment.
+                {!deploy || deploy.status === 'idle' ? (
+                  <>{assets.length} assets · starts at $1.00 NAV.</>
+                ) : deploy.status === 'mining' ? (
+                  <>Mining the 0x88 hook address… {deploy.attempts.toLocaleString()} salts tried (CREATE2)</>
+                ) : deploy.status === 'preparing' ? (
+                  <>Hook address mined · reading the Dutch-auction price…</>
+                ) : deploy.status === 'error' ? (
+                  <span className="text-rose-300">Deploy halted: {deploy.error}</span>
+                ) : deploy.status === 'success' ? (
+                  <>
+                    Deployed —{' '}
+                    <a
+                      href={`${chainCfg(chainId).explorer}/address/${deploy.token}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-cyan underline-offset-4 hover:underline"
+                    >
+                      {shortHex(deploy.token)}
+                    </a>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <div>
+                      Hook <span className="text-ink">{shortHex(deploy.predicted)}</span> · auction{' '}
+                      {deploy.priceWei != null ? formatEther(deploy.priceWei) : '—'} ETH · starts at $1.00 NAV
+                    </div>
+                    {deploy.txHash && (
+                      <div>
+                        tx{' '}
+                        <a
+                          href={`${chainCfg(chainId).explorer}/tx/${deploy.txHash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-cyan underline-offset-4 hover:underline"
+                        >
+                          {shortHex(deploy.txHash)}
+                        </a>
+                      </div>
+                    )}
+                    {deploy.enabled ? (
+                      <button
+                        type="button"
+                        onClick={deploy.onSign}
+                        disabled={deploy.status !== 'ready'}
+                        className="rounded-lg border border-white/15 px-3 py-1.5 font-mono text-[11px] uppercase tracking-wide text-ink transition-colors hover:enabled:border-white/35 disabled:opacity-60"
+                      >
+                        {deploy.status === 'signing'
+                          ? 'Confirm in wallet…'
+                          : deploy.status === 'confirming'
+                            ? 'Deploying…'
+                            : `Sign & deploy · ${deploy.priceWei != null ? formatEther(deploy.priceWei) : '—'} ETH`}
+                      </button>
+                    ) : (
+                      <div className="text-ink-dim/70">
+                        Index deploy is off on this build — but the hook address and auction price above are real
+                        (mined + read live), not a mock.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 flex gap-2 border-t border-white/10 p-4">
