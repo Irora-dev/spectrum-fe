@@ -26,7 +26,7 @@ export function Risk() {
       <LegalSection title="Smart-contract and transaction risk">
         <p>
           Spectrum is software interacting with smart contracts that may contain bugs or be exploited.
-          Onchain transactions are irreversible and settle on public blockchains — a mistaken or
+          Onchain transactions are irreversible and settle on public blockchains, and a mistaken or
           malicious transaction generally cannot be undone.
         </p>
       </LegalSection>

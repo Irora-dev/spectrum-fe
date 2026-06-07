@@ -10,10 +10,13 @@ import { IndexChart } from '../components/IndexChart'
 import { IndexStats } from '../components/IndexStats'
 import { HoldingsView } from '../components/HoldingsView'
 import { TradePanel } from '../components/TradePanel'
+import { LaunchBanner } from '../components/LaunchBanner'
 import { CopyChip } from '../components/DocKit'
 import { indexSignatureColor } from '../lib/spectrum/signature'
 import { readableInk } from '../lib/spectrum/token-meta'
+import { deploySiteUrl } from '../lib/spectrum/links'
 import { formatNav, formatPct, shortAddr } from '../lib/spectrum/format'
+import { useCountUp } from '../lib/motion'
 import { resolveCreator } from '../lib/spectrum/creator'
 import { TRADING_ENABLED } from '../lib/config/features'
 
@@ -87,6 +90,8 @@ export function Token() {
   const addr = params.get('addr') ?? undefined
   const chainId = Number(params.get('chain')) || 8453
   const { data: ix, isLoading, isError } = useIndexData(addr, chainId)
+  // count the headline price up once the index resolves (hook stays unconditional)
+  const navUp = useCountUp(ix?.navPerToken ?? 0, !!ix)
 
   if (!addr) return <Notice>No index address provided (?addr=0x…).</Notice>
   if (isLoading) return <LoadingSkeleton />
@@ -110,9 +115,21 @@ export function Token() {
   const sig = indexSignatureColor(addr, dom ? { symbol: dom.symbol, address: dom.asset } : undefined)
   const buyInk = /^#[0-9a-fA-F]{6}$/.test(sig) ? readableInk(sig) : '#0b0b12'
   const explorerName = chainId === 1 ? 'Etherscan' : 'Basescan'
+  const justDeployed = params.get('deployed') === '1'
 
   return (
     <div className="py-6">
+      {justDeployed && (
+        <LaunchBanner
+          symbol={ix.symbol}
+          name={ix.name || ix.symbol}
+          addr={addr}
+          chainId={chainId}
+          sig={sig}
+          buyInk={buyInk}
+          holdings={ix.holdings}
+        />
+      )}
       <div className="flex items-center justify-between gap-3">
         <Link
           to="/"
@@ -127,9 +144,15 @@ export function Token() {
         <div aria-hidden className="h-1 w-full" style={{ background: sig }} />
 
         {/* ── header: identity (left) · price (right) ─────────────── */}
-        <div className="flex flex-col gap-6 border-b border-white/10 p-6 sm:flex-row sm:items-start sm:justify-between sm:gap-10">
+        <div className="relative flex flex-col gap-6 overflow-hidden border-b border-white/10 p-6 sm:flex-row sm:items-start sm:justify-between sm:gap-10">
+          {/* signature glow */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -top-20 left-1/4 h-52 w-2/3 -translate-x-1/4 rounded-full blur-[100px]"
+            style={{ background: sig, opacity: 0.16 }}
+          />
           {/* identity */}
-          <div className="flex flex-col gap-4">
+          <div className="relative z-10 flex flex-col gap-4">
             <div className="flex items-center gap-3">
               <IndexAvatar address={addr} symbol={ix.symbol} imageUrl={meta.imageUrl} size={52} />
               <div>
@@ -179,13 +202,13 @@ export function Token() {
           </div>
 
           {/* price */}
-          <div className="shrink-0 sm:text-right">
+          <div className="relative z-10 shrink-0 sm:text-right">
             <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-faint">
               Price (${ix.symbol})
             </div>
             <div className="mt-1 flex items-end gap-2 sm:justify-end">
               <span className="font-num text-4xl leading-none tabular-nums text-ink sm:text-5xl">
-                ${formatNav(ix.navPerToken)}
+                ${formatNav(navUp)}
               </span>
               <span
                 className="mb-0.5 rounded-full px-2 py-0.5 font-num text-xs font-semibold tabular-nums"
@@ -236,6 +259,20 @@ export function Token() {
             <HoldingsView holdings={ix.holdings} chainId={chainId} />
           </div>
           <div className="space-y-4 border-t border-white/10 p-4 sm:p-6 lg:border-t-0">
+            {/* primary CTA — open this index on the live Spectrum deploy site */}
+            <a
+              href={deploySiteUrl(addr)}
+              target="_blank"
+              rel="noreferrer"
+              className="flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3 font-display text-sm font-bold uppercase tracking-wide transition-transform hover:scale-[1.01]"
+              style={{ background: sig, color: buyInk }}
+            >
+              Visit ${ix.symbol}
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 17L17 7M7 7h10v10" />
+              </svg>
+            </a>
+
             {TRADING_ENABLED && <TradePanel ix={ix} sig={sig} buyInk={buyInk} />}
 
             <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">

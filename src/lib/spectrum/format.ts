@@ -33,8 +33,9 @@ export function formatPrice(n: number | null | undefined): string {
   if (n >= 1000) return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 2 })
   if (n >= 1) return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 4 })
   if (n >= 0.01) return '$' + n.toFixed(4)
-  if (n >= 0.0001) return '$' + n.toFixed(6)
-  return '$' + n.toExponential(2)
+  // Sub-cent (incl. tiny memecoins): plain decimal with a few significant
+  // figures — never scientific notation, so "$2.3e-6" reads as "$0.0000023".
+  return '$' + n.toLocaleString('en-US', { maximumSignificantDigits: 4 })
 }
 
 // Compact "time since" for inception / freshness labels.

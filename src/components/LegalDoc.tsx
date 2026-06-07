@@ -19,7 +19,7 @@ export function LegalDoc({ title, intro, children }: { title: string; intro: str
           {title}
         </h1>
         <p className="mt-4 font-mono text-[11px] uppercase tracking-[0.15em] text-amber-300/70">
-          Draft placeholder — pending legal review. Not legal advice.
+          Draft placeholder · pending legal review. Not legal advice.
         </p>
         <p className="mt-5 text-base leading-relaxed text-ink-dim">{intro}</p>
       </header>

@@ -16,10 +16,10 @@ import {
 // fully client-side. viem port of the Prismbeat reader.
 //
 // NAV is NOT readable on-chain (valuation routes through the V4 PoolManager unlock
-// callback → static eth_call reverts). We reconstruct it: read basket + balances,
-// price each constituent via DexScreener, NAV = Σ(balance × price) / supply, scaled
-// by the chain's dstable/ETH pool-price factor (Base). ETH has no pool id wired →
-// factor 1 (aggregate spot).
+// callback → static eth_call reverts). We reconstruct it: read basket + held amounts (totalHeld),
+// price each constituent via DexScreener (aggregate spot, USD). NAV per token =
+// Σ(balance × price) / effectiveSupply — the honest USD value of the backing, with
+// no dstable/ETH pool factor (effectiveSupply also excludes tokens pending burn).
 //
 // Discovery: scan the factory `Launched` event + per-chain seed list.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,7 +66,8 @@ export interface IndexData {
   ageHours: number | null
   /** Creator (deployer) address from the factory registry; null if unknown. */
   deployer: string | null
-  /** effectiveSupply() (yield-vesting can push this above totalSupply). Detail-only. */
+  /** effectiveSupply() — the NAV denominator (excludes tokens pending burn;
+   *  yield-vesting can push it above totalSupply). null if the view reverts. */
   effectiveSupply: number | null
   /** Fees claimable by holders, in USD ($1-peg dstable). Detail-only. */
   feeReserveUsd: number | null
@@ -382,17 +383,24 @@ export async function getIndexData(
   const client = clientFor(chainId)
   const cfg = chainCfg(chainId)
 
-  const [name, symbol, decimalsRaw, supplyRaw, lenRaw, deployer] = await Promise.all([
+  const [name, symbol, decimalsRaw, supplyRaw, lenRaw, deployer, effRaw] = await Promise.all([
     client.readContract({ address, abi: indexAbi, functionName: 'name' }),
     client.readContract({ address, abi: indexAbi, functionName: 'symbol' }),
     client.readContract({ address, abi: indexAbi, functionName: 'decimals' }),
     client.readContract({ address, abi: indexAbi, functionName: 'totalSupply' }),
     client.readContract({ address, abi: indexAbi, functionName: 'basketLength' }),
     getDeployer(address, chainId),
+    // canonical NAV denominator — excludes tokens pending burn; fail-safe to null.
+    client.readContract({ address, abi: indexAbi, functionName: 'effectiveSupply' }).catch(() => null),
   ])
 
   const decimals = Number(decimalsRaw)
   const len = Number(lenRaw)
+  const totalSupply = Number(formatUnits(supplyRaw, decimals))
+  const effectiveSupply = effRaw != null ? Number(formatUnits(effRaw, decimals)) : null
+  // Aggregate-spot NAV divides by effectiveSupply, falling back to totalSupply if
+  // the view reverts.
+  const navDenom = effectiveSupply && effectiveSupply > 0 ? effectiveSupply : totalSupply
 
   const entries = await Promise.all(
     Array.from({ length: len }, (_, i) =>
@@ -403,10 +411,15 @@ export async function getIndexData(
   const targetBps = entries.map((e) => Number(e[5]))
   const assetDecimals = entries.map((e) => Number(e[6]))
 
+  // Held amount per constituent: prefer totalHeld(asset) (idle + parked in the
+  // pook), falling back to the index's balanceOf if that view is unavailable.
   const balances = await Promise.all(
     assets.map((a, i) =>
       client
-        .readContract({ address: a, abi: erc20BalanceAbi, functionName: 'balanceOf', args: [address] })
+        .readContract({ address, abi: indexAbi, functionName: 'totalHeld', args: [a] })
+        .catch(() =>
+          client.readContract({ address: a, abi: erc20BalanceAbi, functionName: 'balanceOf', args: [address] }),
+        )
         .then((b) => Number(formatUnits(b, assetDecimals[i])))
         .catch(() => 0),
     ),
@@ -418,7 +431,7 @@ export async function getIndexData(
 
   // List views inject one shared factor (computed once for the whole batch);
   // standalone callers compute it on demand (cached + coalesced).
-  const { factor, dstableUsd } = opts.priceFactor ?? (await getPoolPriceFactor(chainId))
+  const { dstableUsd } = opts.priceFactor ?? (await getPoolPriceFactor(chainId))
 
   const dex = await fetchDexPrices(assets.map((a) => a.toLowerCase()), cfg.dexscreenerSlug)
   const DSTABLE = cfg.dstable.toLowerCase()
@@ -455,9 +468,8 @@ export async function getIndexData(
   const aumUsd = holdings.reduce((s, h) => s + h.valueUsd, 0)
   for (const h of holdings) h.liveWeightPct = aumUsd > 0 ? (h.valueUsd / aumUsd) * 100 : 0
 
-  const totalSupply = Number(formatUnits(supplyRaw, decimals))
-  const spotUsdNav = totalSupply > 0 ? aumUsd / totalSupply : 0
-  const navPerToken = spotUsdNav * factor
+  const spotUsdNav = navDenom > 0 ? aumUsd / navDenom : 0
+  const navPerToken = spotUsdNav
 
   const navSeriesUsd = buildNavSeries(
     holdings.map((h, i) => {
@@ -470,23 +482,20 @@ export async function getIndexData(
         ch24: p?.priceChange?.h24 ?? 0,
       }
     }),
-    totalSupply,
+    navDenom,
     maxHours,
   )
-  const navSeries = navSeriesUsd.map((p) => ({ time: p.time, value: p.value * factor }))
+  const navSeries = navSeriesUsd
 
   // Protocol readouts for the detail page — three cheap static reads, each
   // fail-safe (null on revert). Skipped for list views so cards stay lean.
-  let effectiveSupply: number | null = null
   let feeReserveUsd: number | null = null
   let pendingBurnUsd: number | null = null
   if (opts.detail) {
-    const [effRaw, feeRaw, burnRaw] = await Promise.all([
-      client.readContract({ address, abi: indexAbi, functionName: 'effectiveSupply' }).catch(() => null),
+    const [feeRaw, burnRaw] = await Promise.all([
       client.readContract({ address, abi: indexAbi, functionName: 'feeReserveDstable' }).catch(() => null),
       client.readContract({ address, abi: indexAbi, functionName: 'pendingPrismBurnDstable' }).catch(() => null),
     ])
-    if (effRaw != null) effectiveSupply = Number(formatUnits(effRaw, decimals))
     if (feeRaw != null) feeReserveUsd = Number(formatUnits(feeRaw, DSTABLE_DECIMALS))
     if (burnRaw != null) pendingBurnUsd = Number(formatUnits(burnRaw, DSTABLE_DECIMALS))
   }
@@ -498,7 +507,7 @@ export async function getIndexData(
     symbol,
     decimals,
     totalSupply,
-    aumUsd: aumUsd * factor,
+    aumUsd,
     navPerToken,
     spotUsdNav,
     dstableUsd,

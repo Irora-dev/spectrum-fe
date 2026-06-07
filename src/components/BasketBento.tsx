@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { squarify } from '../lib/treemap'
 import { AssetLogo } from './AssetLogo'
+import { AssetHoverCard } from './AssetHoverCard'
 import { tokenVisual } from '../lib/spectrum/token-meta'
 
 export interface BentoItem {
@@ -35,6 +36,7 @@ export function BasketBento({
   show = true,
   aspect = 1.5,
   fill = false,
+  expandable = false,
 }: {
   items: BentoItem[]
   compact?: boolean
@@ -49,9 +51,13 @@ export function BasketBento({
   // Fill the parent's box (measures real width AND height) instead of imposing
   // `aspect`. Use when the bento sits in a flex/grid cell that owns the height.
   fill?: boolean
+  // Hover-to-expand: hovering a tile dims the rest and pops a brand-colored
+  // preview card (logo, price, 24h, sparkline) for that asset. Lazy-loaded.
+  expandable?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
+  const [hovered, setHovered] = useState<string | null>(null)
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -97,6 +103,20 @@ export function BasketBento({
 
   const cW = width || 320
   const cH = fill && height > 0 ? height : cW * (VH / VW)
+
+  // Expanded preview placement: center the card on the hovered tile, then clamp
+  // so it never spills outside the bento box. Dimensions track AssetHoverCard.
+  const HOVER_W = 208
+  const HOVER_H = 150
+  const hoveredItem = expandable && hovered ? byAddr.get(hovered) : null
+  const hoveredRect = expandable && hovered ? rects.find((rr) => rr.ticker.toLowerCase() === hovered) : null
+  const hoverPos =
+    hoveredRect && cW > 0
+      ? {
+          left: clamp(((hoveredRect.x + hoveredRect.w / 2) / VW) * cW - HOVER_W / 2, 4, Math.max(4, cW - HOVER_W - 4)),
+          top: clamp(((hoveredRect.y + hoveredRect.h / 2) / VH) * cH - HOVER_H / 2, 4, Math.max(4, cH - HOVER_H - 4)),
+        }
+      : null
 
   return (
     <div
@@ -146,16 +166,27 @@ export function BasketBento({
               transitionDelay: `${reveal.delayMs + rank * reveal.stepMs}ms`,
             }
           : undefined
+        // When a tile is hovered (expandable mode), fade the others back so the
+        // expanded preview reads clearly; lift the active tile above its siblings.
+        const addrLower = it.address.toLowerCase()
+        const isHovered = hovered === addrLower
+        const dimStyle =
+          expandable && hovered
+            ? { opacity: isHovered ? 1 : 0.35, transition: 'opacity 0.2s ease', zIndex: isHovered ? 30 : undefined }
+            : undefined
         return (
           <div
             key={r.ticker}
             className="absolute p-0.5"
+            onMouseEnter={expandable ? () => setHovered(addrLower) : undefined}
+            onMouseLeave={expandable ? () => setHovered((h) => (h === addrLower ? null : h)) : undefined}
             style={{
               left: `${(r.x / VW) * 100}%`,
               top: `${(r.y / VH) * 100}%`,
               width: `${(r.w / VW) * 100}%`,
               height: `${(r.h / VH) * 100}%`,
               ...revealStyle,
+              ...dimStyle,
             }}
           >
             <div
@@ -238,6 +269,21 @@ export function BasketBento({
           </div>
         )
       })}
+
+      {expandable && hoveredRect && hoveredItem && hoverPos && (
+        <div
+          key={hoveredItem.address}
+          className="pointer-events-none absolute z-50"
+          style={{ left: hoverPos.left, top: hoverPos.top, width: HOVER_W }}
+        >
+          <AssetHoverCard
+            chainId={hoveredItem.chainId}
+            address={hoveredItem.address}
+            symbol={hoveredItem.symbol}
+            weightPct={hoveredItem.weightPct}
+          />
+        </div>
+      )}
     </div>
   )
 }

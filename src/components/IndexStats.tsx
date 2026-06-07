@@ -3,15 +3,16 @@ import { useNavHistory } from '../lib/spectrum/hooks'
 import { computeReturns } from '../lib/spectrum/history'
 import type { IndexData } from '../lib/spectrum/index-data'
 import { formatAge, formatPct, formatUsdCompact } from '../lib/spectrum/format'
+import { useCountUp } from '../lib/motion'
 
 const DAY = 86400
 
 function Stat({ label, children, accent }: { label: string; children: ReactNode; accent?: string }) {
   return (
-    <div>
-      <div className="font-mono text-[10px] uppercase tracking-[0.15em] text-ink-faint">{label}</div>
+    <div className="bg-void/40 px-4 py-3.5">
+      <div className="font-mono text-[9px] uppercase tracking-[0.2em] text-ink-faint">{label}</div>
       <div
-        className="mt-1 font-num text-lg leading-none tabular-nums text-ink"
+        className="mt-1.5 font-num text-lg leading-none tabular-nums text-ink"
         style={accent ? { color: accent } : undefined}
       >
         {children}
@@ -36,11 +37,12 @@ export function IndexStats({ ix, chainId }: { ix: IndexData; chainId: number }) 
   const changeColor =
     ix.change24hPct == null ? undefined : ix.change24hPct >= 0 ? '#35e0ff' : '#ff4db8'
   const fullyPriced = ix.pricedCount >= ix.totalCount
+  const aumUp = useCountUp(ix.aumUsd, true)
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-x-4 gap-y-5 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="AUM">{formatUsdCompact(ix.aumUsd)}</Stat>
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-3 lg:grid-cols-6">
+        <Stat label="AUM">{formatUsdCompact(aumUp)}</Stat>
         <Stat label="24h" accent={changeColor}>
           {formatPct(ix.change24hPct)}
         </Stat>

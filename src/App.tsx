@@ -4,6 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { config } from './wagmi'
 import { SpectrumBackground } from './components/SpectrumBackground'
 import { Layout } from './components/Layout'
+import { Home } from './pages/Home'
 import { Explore } from './pages/Explore'
 import { Token } from './pages/Token'
 import { Creator } from './pages/Creator'
@@ -28,7 +29,8 @@ export function App() {
           <SpectrumBackground />
           <Layout>
             <Routes>
-              <Route path="/" element={<Explore />} />
+              <Route path="/" element={<Home />} />
+              <Route path="/explore" element={<Explore />} />
               <Route path="/token" element={<Token />} />
               <Route path="/creator/:address" element={<Creator />} />
               <Route path="/portfolio" element={<Portfolio />} />

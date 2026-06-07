@@ -11,12 +11,14 @@ import { indexSignatureColor } from '../lib/spectrum/signature'
 import { readableInk } from '../lib/spectrum/token-meta'
 import { formatNav, formatPct, formatUsdCompact } from '../lib/spectrum/format'
 import { resolveCreatorFromMeta } from '../lib/spectrum/creator'
+import { useCountUp } from '../lib/motion'
 
 const ADVANCE_MS = 6500
 
-// Featured indexes, one at a time, sliding horizontally. Auto-advances, pauses on
-// hover, and has dot controls. This is the one place the full bento shows on the
-// home page — the list below keeps baskets tucked away.
+// Featured indexes, one at a time, sliding horizontally. Auto-advances (with a
+// progress bar), pauses on hover, and has dot controls. The active slide scales
+// in for a parallax feel and counts its price + AUM up. This is the one place the
+// full bento shows on the home page — the grid below keeps baskets tucked away.
 export function IndexSpotlight({ indexes }: { indexes: IndexSummary[] }) {
   const [active, setActive] = useState(0)
   const [paused, setPaused] = useState(false)
@@ -37,13 +39,27 @@ export function IndexSpotlight({ indexes }: { indexes: IndexSummary[] }) {
 
   return (
     <div className="relative" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
-      <div className="overflow-hidden rounded-2xl border border-white/15 bg-white/[0.04] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] backdrop-blur-md">
+      <div className="relative overflow-hidden rounded-2xl border border-white/15 bg-white/[0.04] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] backdrop-blur-md">
+        {/* auto-advance progress bar */}
+        {n > 1 && (
+          <div className="absolute inset-x-0 top-0 z-20 h-[3px] bg-white/[0.06]">
+            <div
+              key={current}
+              className="h-full origin-left bg-cyan/80"
+              style={{
+                animation: `spotlight-fill ${ADVANCE_MS}ms linear forwards`,
+                animationPlayState: paused ? 'paused' : 'running',
+              }}
+            />
+          </div>
+        )}
+
         <div
           className="flex transition-transform duration-500 ease-out"
           style={{ transform: `translateX(-${current * 100}%)` }}
         >
-          {indexes.map((ix) => (
-            <SpotlightSlide key={`${ix.chainId}:${ix.address}`} ix={ix} />
+          {indexes.map((ix, i) => (
+            <SpotlightSlide key={`${ix.chainId}:${ix.address}`} ix={ix} active={i === current} />
           ))}
         </div>
       </div>
@@ -57,10 +73,21 @@ export function IndexSpotlight({ indexes }: { indexes: IndexSummary[] }) {
               onClick={() => setActive(i)}
               aria-label={`Show ${ix.symbol}`}
               aria-current={i === current}
-              className={`h-1.5 rounded-full transition-all ${
-                i === current ? 'w-6 bg-cyan' : 'w-1.5 bg-white/20 hover:bg-white/40'
+              className={`h-1.5 overflow-hidden rounded-full transition-all ${
+                i === current ? 'w-6 bg-white/10' : 'w-1.5 bg-white/20 hover:bg-white/40'
               }`}
-            />
+            >
+              {i === current && (
+                <span
+                  key={current}
+                  className="block h-full w-full origin-left rounded-full bg-cyan"
+                  style={{
+                    animation: `spotlight-fill ${ADVANCE_MS}ms linear forwards`,
+                    animationPlayState: paused ? 'paused' : 'running',
+                  }}
+                />
+              )}
+            </button>
           ))}
         </div>
       )}
@@ -68,7 +95,7 @@ export function IndexSpotlight({ indexes }: { indexes: IndexSummary[] }) {
   )
 }
 
-function SpotlightSlide({ ix }: { ix: IndexSummary }) {
+function SpotlightSlide({ ix, active }: { ix: IndexSummary; active: boolean }) {
   const meta = getIndexMeta(ix.address)
   const sector = sectorOf(ix.address)
   const sc = SECTOR_COLOR[sector]
@@ -76,6 +103,8 @@ function SpotlightSlide({ ix }: { ix: IndexSummary }) {
   const accent = up ? '#35e0ff' : '#ff4db8'
   const sig = indexSignatureColor(ix.address, ix.top[0])
   const buyInk = /^#[0-9a-fA-F]{6}$/.test(sig) ? readableInk(sig) : '#0b0b12'
+  const nav = useCountUp(ix.navPerToken, active)
+  const aum = useCountUp(ix.aumUsd, active)
   const bentoItems = ix.top.map((t) => ({
     symbol: t.symbol,
     address: t.address,
@@ -84,7 +113,10 @@ function SpotlightSlide({ ix }: { ix: IndexSummary }) {
   }))
 
   return (
-    <div className="w-full shrink-0">
+    <div
+      className="w-full shrink-0 transition-all duration-500 ease-out"
+      style={{ transform: active ? 'scale(1)' : 'scale(0.96)', opacity: active ? 1 : 0.4 }}
+    >
       <div aria-hidden className="h-1 w-full" style={{ background: sig }} />
       <div className="grid gap-6 p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-8">
         {/* details */}
@@ -118,9 +150,7 @@ function SpotlightSlide({ ix }: { ix: IndexSummary }) {
           <div className="mt-auto flex items-end justify-between gap-3">
             <div>
               <div className="flex items-end gap-2">
-                <span className="font-num text-3xl leading-none tabular-nums text-ink">
-                  ${formatNav(ix.navPerToken)}
-                </span>
+                <span className="font-num text-3xl leading-none tabular-nums text-ink">${formatNav(nav)}</span>
                 <span
                   className="mb-0.5 rounded-full px-2 py-0.5 font-num text-xs font-semibold tabular-nums"
                   style={{ color: accent, background: `${accent}1a` }}
@@ -128,9 +158,7 @@ function SpotlightSlide({ ix }: { ix: IndexSummary }) {
                   {formatPct(ix.change24hPct)}
                 </span>
               </div>
-              <div className="mt-1 font-mono text-[10px] text-ink-faint">
-                DSTABLE · AUM {formatUsdCompact(ix.aumUsd)}
-              </div>
+              <div className="mt-1 font-mono text-[10px] text-ink-faint">DSTABLE · AUM {formatUsdCompact(aum)}</div>
             </div>
             <div className="h-12 w-28 shrink-0">
               <IndexSpark

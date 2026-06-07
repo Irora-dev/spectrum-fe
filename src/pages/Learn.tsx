@@ -99,7 +99,7 @@ export function Learn() {
           to="/launch"
           className="mt-1 inline-block rounded-lg border border-white/20 bg-white/[0.04] px-5 py-2.5 font-mono text-xs uppercase tracking-[0.15em] text-ink transition-colors hover:border-cyan hover:text-cyan"
         >
-          Launch an index →
+          Launch a Basket →
         </Link>
       </Section>
 
@@ -123,7 +123,7 @@ export function Learn() {
           to="/launch"
           className="rounded-lg border border-white/10 px-5 py-2.5 font-mono text-xs uppercase tracking-[0.15em] text-ink-dim transition-colors hover:text-ink"
         >
-          Launch an index
+          Launch a Basket
         </Link>
       </div>
     </div>

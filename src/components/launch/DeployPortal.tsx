@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import { formatEther } from 'viem'
 import { tokenVisual } from '../../lib/spectrum/token-meta'
 import { resolveCreator } from '../../lib/spectrum/creator'
@@ -143,6 +144,7 @@ export function DeployPortal({
   const orbTokens = assets.slice(0, 14)
   const [revealed, setRevealed] = useState(false)
   const [runId, setRunId] = useState(0)
+  const navigate = useNavigate()
 
   const overlayRef = useRef<HTMLDivElement>(null)
   const sceneRef = useRef<HTMLDivElement>(null)
@@ -418,6 +420,15 @@ export function DeployPortal({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+
+  // On a real successful deploy, hand off to the live index page (it carries the
+  // share / copy-link in its top-right) rather than keeping the in-modal card.
+  useEffect(() => {
+    if (open && deploy?.status === 'success' && deploy.token) {
+      navigate(`/token?addr=${deploy.token}&chain=${chainId}&deployed=1`)
+      onClose()
+    }
+  }, [open, deploy?.status, deploy?.token, chainId, navigate, onClose])
 
   if (!open) return null
 

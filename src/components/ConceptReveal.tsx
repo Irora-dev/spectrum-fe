@@ -15,35 +15,47 @@ const ASSETS = [
 ]
 const CHAIN = 8453
 
-// "Many assets become one token" — a looping cinematic where real asset logos
-// orbit, then drift together and fuse into a single glowing index token.
-export function ConceptReveal() {
+// Just the animation: real asset logos orbit, then drift together and fuse into
+// a single glowing index token. Reused at small scale in explainers and blown up
+// as the homepage hero backdrop. `showCore` hides the centre token so something
+// else (e.g. the wordmark) can sit at the convergence point. The orbit radius is
+// driven by the `--orbit-r` CSS var (set via className, responsively), so a wider
+// ring + a modest `logoSize` opens up the middle and the gaps between assets.
+export function ConceptOrbit({
+  showCore = true,
+  logoSize = 38,
+  className = '',
+}: {
+  showCore?: boolean
+  logoSize?: number
+  className?: string
+}) {
   return (
-    <div className="text-center">
-      <div className="relative mx-auto h-72 w-full max-w-md">
-        {/* soft glow that breathes with the token */}
-        <div aria-hidden className="concept-core absolute left-1/2 top-1/2 h-40 w-40 rounded-full bg-violet/25 blur-3xl" />
+    <div className={`relative mx-auto h-72 w-full max-w-md ${className}`}>
+      {/* soft glow that breathes with the token */}
+      <div aria-hidden className="concept-core absolute left-1/2 top-1/2 h-40 w-40 rounded-full bg-violet/25 blur-3xl" />
 
-        {/* orbiting assets that converge into the centre */}
-        <div className="concept-spin absolute inset-0">
-          {ASSETS.map((a, i) => (
-            <div
-              key={a.address}
-              className="concept-orb absolute left-1/2 top-1/2"
-              style={{ '--angle': `${(i / ASSETS.length) * 360}deg` } as CSSProperties}
-            >
-              <AssetLogo
-                address={a.address}
-                symbol={a.symbol}
-                chainId={CHAIN}
-                size={38}
-                discColor={`color-mix(in srgb, ${tokenVisual(a.symbol, a.address).color} 55%, #000)`}
-              />
-            </div>
-          ))}
-        </div>
+      {/* orbiting assets that converge into the centre */}
+      <div className="concept-spin absolute inset-0">
+        {ASSETS.map((a, i) => (
+          <div
+            key={a.address}
+            className="concept-orb absolute left-1/2 top-1/2"
+            style={{ '--angle': `${(i / ASSETS.length) * 360}deg` } as CSSProperties}
+          >
+            <AssetLogo
+              address={a.address}
+              symbol={a.symbol}
+              chainId={CHAIN}
+              size={logoSize}
+              discColor={`color-mix(in srgb, ${tokenVisual(a.symbol, a.address).color} 55%, #000)`}
+            />
+          </div>
+        ))}
+      </div>
 
-        {/* the index token they fuse into */}
+      {/* the index token they fuse into */}
+      {showCore && (
         <div
           className="concept-core absolute left-1/2 top-1/2 grid h-16 w-16 place-items-center rounded-2xl ring-1 ring-white/25"
           style={{ background: 'linear-gradient(135deg, #35e0ff, #a48bff 52%, #ff4db8)' }}
@@ -52,8 +64,16 @@ export function ConceptReveal() {
             <path d="M12 2l9 9-9 9-9-9 9-9z" />
           </svg>
         </div>
-      </div>
+      )}
+    </div>
+  )
+}
 
+// "Many assets become one token" — the orbit animation plus an explanatory caption.
+export function ConceptReveal() {
+  return (
+    <div className="text-center">
+      <ConceptOrbit />
       <h3 className="mt-1 font-display text-xl font-bold uppercase tracking-tight text-ink sm:text-2xl">
         Many assets, one token
       </h3>

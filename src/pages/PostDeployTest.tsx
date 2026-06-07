@@ -1,17 +1,7 @@
-import { forwardRef, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAllIndexes } from '../lib/spectrum/hooks'
-import type { IndexSummary } from '../lib/spectrum/index-data'
-import { readableInk, tokenVisual } from '../lib/spectrum/token-meta'
-import { getIndexMeta } from '../lib/spectrum/metadata'
-import { SECTOR_COLOR, sectorOf } from '../lib/spectrum/sectors'
-import { indexSignatureColor } from '../lib/spectrum/signature'
-import { formatNav, formatPct, formatUsdCompact } from '../lib/spectrum/format'
-import { resolveCreatorFromMeta } from '../lib/spectrum/creator'
-import { IndexAvatar } from '../components/IndexAvatar'
-import { BasketBento } from '../components/BasketBento'
-import { ChainBadge } from '../components/ChainBadge'
-import { SpectralSparkline } from '../components/SpectralSparkline'
+import { tokenVisual } from '../lib/spectrum/token-meta'
 
 // ── One orb = one basket asset (brand color sphere + the token's logo) ───────
 const SLUG: Record<number, string> = { 1: 'ethereum', 8453: 'base' }
@@ -63,160 +53,6 @@ const Orb = forwardRef<
 })
 Orb.displayName = 'Orb'
 
-// ── The reveal target: a mock of the real index page (mirrors pages/Token) ───
-function MockIndexPage({ ix, show }: { ix: IndexSummary; show: boolean }) {
-  const meta = getIndexMeta(ix.address)
-  const sector = sectorOf(ix.address)
-  const sc = SECTOR_COLOR[sector]
-  const up = (ix.change24hPct ?? 0) >= 0
-  const accent = up ? '#35e0ff' : '#ff4db8'
-  const bentoItems = ix.top.map((t) => ({
-    symbol: t.symbol,
-    address: t.address,
-    weightPct: t.weightPct,
-    chainId: ix.chainId,
-  }))
-  const dom = ix.top[0]
-  const sig = indexSignatureColor(ix.address, dom ? { symbol: dom.symbol, address: dom.address } : undefined)
-  const buyInk = /^#[0-9a-fA-F]{6}$/.test(sig) ? readableInk(sig) : '#0b0b12'
-
-  // Staggered entrance once revealed: card → text → chart → tokens (by weight).
-  // Everything starts hidden (opacity 0), so the page never flashes before reveal.
-  const [play, setPlay] = useState(false)
-  useEffect(() => {
-    if (!show) {
-      setPlay(false)
-      return
-    }
-    const id = requestAnimationFrame(() => setPlay(true))
-    return () => cancelAnimationFrame(id)
-  }, [show])
-  const stage = (delay: number, y = 10): CSSProperties => ({
-    opacity: play ? 1 : 0,
-    transform: play ? 'translateY(0)' : `translateY(${y}px)`,
-    transition: 'opacity 0.5s ease, transform 0.5s ease',
-    transitionDelay: `${delay}ms`,
-  })
-
-  return (
-    <div className="py-6">
-      <Link
-        to="/"
-        className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink-faint transition-colors hover:text-ink"
-        style={stage(0)}
-      >
-        ← All indexes
-      </Link>
-
-      <div
-        className="mt-4 overflow-hidden rounded-2xl border border-white/15 bg-white/[0.04] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] backdrop-blur-md"
-        style={stage(0, 18)}
-      >
-        <div aria-hidden className="h-1 w-full" style={{ background: sig }} />
-        {/* ── top: identity (left) · price + chart (right) ─────────── */}
-        <div className="grid gap-6 border-b border-white/10 p-6 lg:grid-cols-2 lg:gap-10">
-          {/* identity */}
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-3" style={stage(380)}>
-              <IndexAvatar address={ix.address} symbol={ix.symbol} imageUrl={meta.imageUrl} size={52} />
-              <div>
-                <span className="inline-block rounded-md bg-white/10 px-2 py-0.5 font-mono text-[12px] font-semibold text-cyan">
-                  ${ix.symbol}
-                </span>
-                <div className="mt-2 flex items-center gap-2">
-                  <ChainBadge chainId={ix.chainId} />
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.12em]"
-                    style={{ color: sc, border: `1px solid ${sc}33`, background: `${sc}14` }}
-                  >
-                    {sector}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <h1
-              className="font-display text-4xl font-bold uppercase leading-[0.92] tracking-tight text-ink"
-              style={stage(470)}
-            >
-              {ix.name || ix.symbol}
-            </h1>
-
-            <div className="flex items-center gap-2" style={stage(610)}>
-              <IndexAvatar
-                address={meta.creatorAddress ?? resolveCreatorFromMeta(meta, ix.deployer, ix.address).address ?? ix.address}
-                symbol={(meta.creatorHandle ?? 'x').replace(/^@/, '')}
-                imageUrl={meta.creatorAvatarUrl}
-                size={22}
-              />
-              <span className="text-xs text-ink-faint">
-                created by{' '}
-                <span className="text-ink-dim">{resolveCreatorFromMeta(meta, ix.deployer, ix.address).label}</span>
-              </span>
-            </div>
-          </div>
-
-          {/* price + chart */}
-          <div className="flex flex-col justify-between gap-4 lg:items-end">
-            <div className="lg:text-right" style={stage(700)}>
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-ink-faint">
-                Price (${ix.symbol})
-              </div>
-              <div className="mt-1 flex items-end gap-2 lg:justify-end">
-                <span className="font-num text-4xl leading-none tabular-nums text-ink sm:text-5xl">
-                  ${formatNav(ix.navPerToken)}
-                </span>
-                <span
-                  className="mb-0.5 rounded-full px-2 py-0.5 font-num text-xs font-semibold tabular-nums"
-                  style={{ color: accent, background: `${accent}1a` }}
-                >
-                  {formatPct(ix.change24hPct)}
-                </span>
-              </div>
-              <div className="mt-1 font-mono text-[10px] text-ink-faint">
-                DSTABLE · NAV per token · AUM {formatUsdCompact(ix.aumUsd)}
-              </div>
-            </div>
-            <div className="h-24 w-full" style={stage(820)}>
-              <SpectralSparkline values={ix.navSeries.map((p) => p.value)} />
-            </div>
-          </div>
-        </div>
-
-        {/* ── thesis / description ───────────────────────────────── */}
-        <div className="border-b border-white/10 px-6 py-5" style={stage(900)}>
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.2em] text-ink-faint">
-            {meta.tagline ?? 'About'}
-          </div>
-          <p className="max-w-3xl text-sm leading-relaxed text-ink-dim">
-            {meta.description ?? `A ${ix.basketLength}-asset onchain index, priced in DSTABLE.`}
-          </p>
-        </div>
-
-        {/* ── bottom: all assets, full width (reveal one-by-one by weight) ── */}
-        <div className="border-b border-white/10 p-4 sm:px-6">
-          <BasketBento items={bentoItems} aspect={3.2} reveal={{ delayMs: 1050, stepMs: 130 }} show={play} />
-        </div>
-
-        {/* ── buy bar (button takes the index's signature colour) ─────── */}
-        <div
-          className="flex flex-wrap items-center justify-between gap-3 bg-white/[0.03] px-6 py-4"
-          style={stage(900)}
-        >
-          <div className="font-mono text-xs text-ink-dim">{ix.basketLength} assets</div>
-          <button
-            type="button"
-            className="rounded-lg px-6 py-2.5 font-mono text-xs font-bold uppercase tracking-[0.15em] transition-opacity hover:opacity-90"
-            style={{ background: sig, color: buyInk }}
-          >
-            Buy ${ix.symbol}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Easing helpers (ported from the source animation) ────────────────────────
 const easeOutBack = (x: number) => {
   const c1 = 1.70158
@@ -245,9 +81,13 @@ const CONFIG = {
   fadeOut: 1000,
   orbitSpeed: 0.002,
 }
+// Real-time budget for the whole ceremony — a backstop navigates even if rAF is
+// throttled (backgrounded tab / headless preview), so the flow always completes.
+const TOTAL = CONFIG.fadeIn + CONFIG.orbit + CONFIG.bunch + CONFIG.drop + CONFIG.wait + 400
 
 export function PostDeployTest() {
   const { data, isError } = useAllIndexes()
+  const navigate = useNavigate()
   const target = useMemo(() => {
     if (!data?.length) return undefined
     return data.find((d) => d.symbol?.toUpperCase() === 'BASEAI') ?? data[0]
@@ -255,8 +95,14 @@ export function PostDeployTest() {
 
   const orbTokens = useMemo(() => (target ? target.top.slice(0, 14) : []), [target])
 
-  const [revealed, setRevealed] = useState(false)
-  const [runId, setRunId] = useState(0)
+  // When the ceremony finishes, hand off to the real index page (it carries the
+  // share / copy-link in its top-right). Guarded so we only navigate once.
+  const doneRef = useRef(false)
+  const goToIndex = useCallback(() => {
+    if (doneRef.current || !target) return
+    doneRef.current = true
+    navigate(`/token?addr=${target.address}&chain=${target.chainId}&deployed=1`)
+  }, [navigate, target])
 
   // refs into the animated DOM
   const overlayRef = useRef<HTMLDivElement>(null)
@@ -279,6 +125,7 @@ export function PostDeployTest() {
 
   useEffect(() => {
     if (!target) return
+    doneRef.current = false
     const orbs = orbRefs.current.slice(0, orbTokens.length).filter(Boolean) as HTMLDivElement[]
     const scene = sceneRef.current
     const overlay = overlayRef.current
@@ -296,6 +143,10 @@ export function PostDeployTest() {
     const success = successRef.current
     if (!orbs.length || !scene || !overlay || !ring || !glow || !hole || !coreLight || !frontLip || !energy || !core || !header || !statusText || !statusSub || !indicator || !success)
       return
+
+    // Backstop: navigate to the index even if rAF never advances.
+    const backstop = window.setTimeout(goToIndex, TOTAL + 700)
+    let navTimer = 0
 
     let radius = 200
     let bunchTargetY = -250
@@ -439,11 +290,10 @@ export function PostDeployTest() {
         phaseStart = time
         elapsed = 0
       } else if (phase === 'WAIT' && elapsed > CONFIG.wait) {
-        // Done — keep the portal exactly where it is and cross-fade: the overlay
-        // (orbs/portal/success) fades out while the index page fades in beneath.
+        // Ceremony done — fade the overlay out, then route to the real index page.
         phase = 'FADE_OUT'
         overlay!.style.opacity = '0'
-        setRevealed(true)
+        navTimer = window.setTimeout(goToIndex, 450)
         return
       }
 
@@ -517,7 +367,6 @@ export function PostDeployTest() {
     window.addEventListener('resize', calculateLayout)
     reset()
     overlay.style.opacity = '1'
-    setRevealed(false)
     phase = 'FADE_IN'
     phaseStart = performance.now()
     updateUIState('FADE_IN')
@@ -525,9 +374,11 @@ export function PostDeployTest() {
 
     return () => {
       cancelAnimationFrame(rafId)
+      window.clearTimeout(backstop)
+      window.clearTimeout(navTimer)
       window.removeEventListener('resize', calculateLayout)
     }
-  }, [target, orbTokens.length, runId])
+  }, [target, orbTokens.length, goToIndex])
 
   if (isError) {
     return (
@@ -542,16 +393,9 @@ export function PostDeployTest() {
 
   return (
     <>
-      {/* reveal target sits underneath the overlay. Its sections start hidden
-          (opacity 0) so nothing shows before the animation finishes; once the
-          portal completes it plays a staggered entrance (card → text → chart →
-          tokens) while the overlay fades out. */}
-      <div className={revealed ? '' : 'pointer-events-none'}>
-        <MockIndexPage ix={target} show={revealed} />
-      </div>
-
       {/* ── animation overlay (transparent → the site's void + edge-spectrum
-          background shows behind the orbs and portal) ───────────────────── */}
+          background shows behind the orbs and portal). On completion it routes
+          to the real index page, which carries the copy-link in its top-right. ─ */}
       <div
         ref={overlayRef}
         className="pointer-events-none fixed inset-0 z-50 overflow-hidden transition-opacity duration-1000"
@@ -670,18 +514,18 @@ export function PostDeployTest() {
               </svg>
             </div>
             <h2 className="mb-3 font-display text-4xl font-bold tracking-tight text-white md:text-5xl">Index Deployed</h2>
-            <p className="text-sm uppercase tracking-widest text-emerald-200/80">${target.symbol} is live</p>
+            <p className="text-sm uppercase tracking-widest text-emerald-200/80">${target.symbol} is live · opening your index…</p>
           </div>
         </div>
       </div>
 
-      {/* replay control — outside the overlay so it's always clickable */}
+      {/* skip straight to the index */}
       <button
         type="button"
-        onClick={() => setRunId((n) => n + 1)}
+        onClick={goToIndex}
         className="fixed bottom-5 right-5 z-[60] rounded-lg border border-white/20 bg-black/60 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.15em] text-ink backdrop-blur transition-colors hover:border-cyan hover:text-cyan"
       >
-        ↻ Replay
+        Skip →
       </button>
     </>
   )

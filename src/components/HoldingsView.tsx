@@ -107,8 +107,11 @@ export function HoldingsView({ holdings, chainId }: { holdings: Holding[]; chain
       </div>
 
       {view === 'visual' ? (
-        <div className="relative mt-3 min-h-[260px] flex-1">
-          <BasketBento items={bentoItems} fill />
+        <div className="mt-3 flex min-h-[260px] flex-1 flex-col">
+          <div className="relative min-h-0 flex-1">
+            <BasketBento items={bentoItems} fill expandable />
+          </div>
+          <div className="mt-2 shrink-0 font-mono text-[10px] text-ink-faint">Hover a tile to preview its 7d chart</div>
         </div>
       ) : (
         <div className="mt-3 overflow-x-auto">

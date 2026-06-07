@@ -20,6 +20,10 @@ export const indexAbi = parseAbi([
   'function effectiveSupply() view returns (uint256)',
   'function feeReserveDstable() view returns (uint256)',
   'function pendingPrismBurnDstable() view returns (uint256)',
+  // Held amount of a constituent (idle + parked in the yield manager / "pook"),
+  // raw in the asset's own decimals. Static-safe — it's a balances read, not a
+  // NAV valuation. Preferred over balanceOf, which undercounts parked backing.
+  'function totalHeld(address asset) view returns (uint256)',
 ])
 
 export const erc20BalanceAbi = parseAbi([

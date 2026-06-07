@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["dev", "--port", "4321", "--strictPort"],
       "port": 4321
+    },
+    {
+      "name": "giiift",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/colbymort/giiift/dev-server.py", "3091", "/Users/colbymort/giiift"],
+      "port": 3091
     }
   ]
 }

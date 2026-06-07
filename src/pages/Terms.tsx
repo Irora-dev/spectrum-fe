@@ -7,7 +7,7 @@ export function Terms() {
   return (
     <LegalDoc
       title="Terms of Use"
-      intro="These terms cover your use of the Spectrum interface. Spectrum is software for interacting with permissionless smart contracts — please read these alongside the Risk Disclosure."
+      intro="These terms cover your use of the Spectrum interface. Spectrum is software for interacting with permissionless smart contracts. Please read these alongside the Risk Disclosure."
     >
       <LegalSection title="What Spectrum is">
         <p>
@@ -21,7 +21,7 @@ export function Terms() {
       <LegalSection title="Indexes are issued by their creators">
         <p>
           Each index is deployed by a third-party creator, who is its issuer and is solely responsible
-          for it — including its composition, naming, and any description they provide. Spectrum is not
+          for it, including its composition, naming, and any description they provide. Spectrum is not
           the issuer of, and does not endorse, any index. Listing or display of an index is not a
           recommendation.
         </p>

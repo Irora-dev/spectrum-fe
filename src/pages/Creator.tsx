@@ -139,7 +139,7 @@ export function Creator() {
   const { data: profile, isLoading, isError } = useCreatorProfile(address)
 
   if (!address) return <Notice>No creator address provided.</Notice>
-  if (isError) return <Notice>Couldn’t load creators — the public RPC may be rate-limiting. With an Alchemy key it’s reliable.</Notice>
+  if (isError) return <Notice>Couldn’t load creators. The public RPC may be rate-limiting. With an Alchemy key it’s reliable.</Notice>
   if (isLoading || !profile) return <CreatorSkeleton />
 
   if (profile.indexCount === 0) {

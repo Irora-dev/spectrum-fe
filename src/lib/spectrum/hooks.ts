@@ -242,6 +242,19 @@ export function useNavHistory(input?: NavHistoryInput) {
   return { data, perAsset, isLoading }
 }
 
+// One constituent's real price history. Shares the exact query key the chart engine
+// uses (`useNavHistory`'s per-asset queries), so a tile hover is usually an instant
+// cache hit. Used by the bento's hover-to-expand preview.
+export function useAssetHistory(chainId: number, address: string | undefined, range: ChartRange = '7D') {
+  return useQuery({
+    queryKey: ['spectrum', 'assetHist', chainId, address?.toLowerCase(), range],
+    queryFn: () => fetchAssetHistory(chainId, address as string, range),
+    enabled: !!address && chainId > 0,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+  })
+}
+
 export interface PerAssetReturn {
   address: string
   weight: number

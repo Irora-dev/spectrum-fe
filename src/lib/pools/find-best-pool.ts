@@ -241,6 +241,28 @@ async function wethUsdPrice(slug: string, weth: Address): Promise<number | null>
   }
 }
 
+// Real USD liquidity per pool, keyed by the pool's on-chain identifier — V2/V3 pool
+// CONTRACT address, V4 pool id (DexScreener uses the 32-byte poolId as `pairAddress`
+// for v4). This is the cross-venue-consistent depth metric (pool TVL, the same way
+// for every DEX version) and matches what users see in the asset search.
+async function fetchPoolLiquidity(slug: string, asset: Address): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  try {
+    const r = await fetch(`https://api.dexscreener.com/token-pairs/v1/${slug}/${asset}`, {
+      headers: { Accept: 'application/json' },
+    })
+    if (!r.ok) return map
+    const pairs = (await r.json()) as { pairAddress?: string; liquidity?: { usd?: number } }[]
+    for (const p of pairs ?? []) {
+      const key = p.pairAddress?.toLowerCase()
+      if (key) map.set(key, p.liquidity?.usd ?? 0)
+    }
+  } catch {
+    /* DexScreener unavailable → caller falls back to on-chain depth */
+  }
+  return map
+}
+
 async function readDecimals(client: Client, asset: Address): Promise<number> {
   try {
     return Number(await client.readContract({ address: asset, abi: erc20MetaAbi, functionName: 'decimals' }))
@@ -291,11 +313,30 @@ export async function findBestPool(asset: Address, chainId: number): Promise<Bes
     throw new PoolDetectionError('No Uniswap v2/v3/v4 ETH pool found for this asset.', 'NO_POOL')
   }
 
-  const ethUsd = await wethUsdPrice(cfg.dexscreenerSlug, cfg.weth)
-  for (const c of candidates) c.depthUsd = ethUsd != null ? c.depthEth * ethUsd : null
+  // Rank by REAL USD liquidity (DexScreener pool TVL) — measured the same way for
+  // every venue. The on-chain `depthEth` is NOT comparable across versions (V2/V3 are
+  // real reserves; V4's virtual reserve is inflated for concentrated liquidity), which
+  // let tiny tightly-concentrated V4 pools out-rank genuinely deep pools. Match each
+  // candidate to its DexScreener pool (V4 by poolId, V2/V3 by pool address).
+  const [ethUsd, liqByPool] = await Promise.all([
+    wethUsdPrice(cfg.dexscreenerSlug, cfg.weth),
+    fetchPoolLiquidity(cfg.dexscreenerSlug, asset),
+  ])
+  for (const c of candidates) {
+    const key = (c.venue === Venue.V4 ? c.poolId : c.poolAddress)?.toLowerCase()
+    const listedUsd = key ? liqByPool.get(key) : undefined
+    c.dexListed = listedUsd != null
+    // DexScreener TVL when the pool is indexed; otherwise an on-chain ETH-side estimate.
+    c.depthUsd = listedUsd != null ? listedUsd : ethUsd != null ? c.depthEth * ethUsd : null
+  }
 
-  // Deepest ETH-side liquidity wins — the rigorous comparison the old launcher lacked.
-  candidates.sort((a, b) => b.depthEth - a.depthEth)
+  // DexScreener-listed pools (real, comparable TVL) always rank above unlisted dust;
+  // among listed, deepest USD wins; unlisted fall back to on-chain ETH depth.
+  candidates.sort((a, b) => {
+    if (!!a.dexListed !== !!b.dexListed) return a.dexListed ? -1 : 1
+    if (a.dexListed && b.dexListed) return (b.depthUsd ?? 0) - (a.depthUsd ?? 0)
+    return b.depthEth - a.depthEth
+  })
   const best = candidates[0]
 
   const warnings: string[] = []

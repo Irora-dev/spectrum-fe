@@ -25,6 +25,8 @@ import { useAllIndexes } from '../../lib/spectrum/hooks'
 import { AssetLogo } from '../AssetLogo'
 import { BasketBento, type BentoItem } from '../BasketBento'
 import { DeployPortal } from './DeployPortal'
+import { AssetSearch } from './AssetSearch'
+import { PopularAssets } from './PopularAssets'
 import { useDeployIndex } from '../../lib/spectrum/use-deploy'
 import { SECTORS, SECTOR_COLOR, type Sector } from '../../lib/spectrum/sectors'
 
@@ -69,6 +71,24 @@ async function resolveAsset(addr: string, chainId: number, knownSymbol?: string)
 
 const DEFAULT_GRAD = 'linear-gradient(135deg, #35e0ff, #a48bff 55%, #ff4db8)'
 const HORIZONS = ['Swing', 'This cycle', 'Long-term'] as const
+
+// Liquidity tiers for a basket constituent's routing pool. A thin pool means every
+// index mint/redeem routes a slice of the trade through it, so it slips.
+const LOW_LIQ_USD = 100_000
+const VERY_LOW_LIQ_USD = 10_000
+type LiqTier = 'ok' | 'low' | 'verylow'
+function liqTier(depthUsd: number | null): LiqTier {
+  if (depthUsd == null) return 'low'
+  if (depthUsd < VERY_LOW_LIQ_USD) return 'verylow'
+  if (depthUsd < LOW_LIQ_USD) return 'low'
+  return 'ok'
+}
+// Suggested max weight so a thin pool isn't a bottleneck — ~$20k of pool depth per
+// 1% of basket weight, clamped to the builder's min/cap.
+function suggestedWeight(depthUsd: number | null): number {
+  if (depthUsd == null) return MIN
+  return Math.max(MIN, Math.min(CAP, Math.round(depthUsd / 20_000)))
+}
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -223,8 +243,9 @@ export function IndexBuilder() {
   const [weights, setWeights] = useState<number[]>([])
   const [name, setName] = useState('')
   const [symbol, setSymbol] = useState('')
-  const [input, setInput] = useState('')
   const [adding, setAdding] = useState(false)
+  // Per-asset (keyed by address) state for the "recheck pools" action on thin pools.
+  const [recheck, setRecheck] = useState<Record<string, 'checking' | 'better' | 'none' | 'set'>>({})
   const [error, setError] = useState<string | null>(null)
   const [sector, setSector] = useState<Sector | ''>('')
   const [tagline, setTagline] = useState('')
@@ -262,7 +283,6 @@ export function IndexBuilder() {
     setAssets([])
     setWeights([])
     setError(null)
-    setInput('')
     setSector('')
     setTagline('')
     setThesis('')
@@ -300,7 +320,6 @@ export function IndexBuilder() {
         // addAsset borrows from existing holdings to keep Σ = CAP, so it assumes a
         // basket that already sums to CAP — seed the first asset at the full CAP.
         setWeights((prev) => (prev.length === 0 ? [CAP] : addAsset(prev)))
-        setInput('')
       } catch (e) {
         if (e instanceof PoolDetectionError) setError(e.message)
         else setError('Could not validate this asset — check the address and the selected network.')
@@ -320,6 +339,43 @@ export function IndexBuilder() {
   const setW = useCallback((i: number, v: number) => setWeights((prev) => setWeight(prev, i, v)), [])
   const equalize = useCallback(() => setWeights((prev) => equalSplit(prev.length)), [])
 
+  // Re-run pool detection for one asset; if a deeper routing pool turns up, swap to
+  // it. Otherwise flag "none" so the UI can suggest a safe (small) weight.
+  const recheckPool = useCallback(
+    async (i: number) => {
+      const a = assets[i]
+      if (!a) return
+      const key = a.address.toLowerCase()
+      setRecheck((m) => ({ ...m, [key]: 'checking' }))
+      try {
+        const fresh = await findBestPool(a.address as Address, chainId)
+        const prev = a.depthUsd ?? 0
+        const next = fresh.best.depthUsd ?? 0
+        const better = next > prev * 1.02
+        if (better) {
+          setAssets((prevAssets) =>
+            prevAssets.map((x, k) =>
+              k === i
+                ? {
+                    ...x,
+                    decimals: fresh.decimals,
+                    venueLabel: fresh.best.label,
+                    depthUsd: fresh.best.depthUsd,
+                    warnings: fresh.warnings,
+                    route: fresh.route,
+                  }
+                : x,
+            ),
+          )
+        }
+        setRecheck((m) => ({ ...m, [key]: better ? 'better' : 'none' }))
+      } catch {
+        setRecheck((m) => ({ ...m, [key]: 'none' }))
+      }
+    },
+    [assets, chainId],
+  )
+
   // Suggestions: real constituents of live indexes on this chain, most-used first.
   const { data: allIndexes } = useAllIndexes()
   const suggestions = useMemo(() => {
@@ -338,11 +394,6 @@ export function IndexBuilder() {
     }
     return [...freq.values()].sort((a, b) => b.n - a.n)
   }, [allIndexes, chainId, cfg])
-
-  const suggestionsToShow = useMemo(
-    () => suggestions.filter((s) => !inBasket(s.address)).slice(0, 14),
-    [suggestions, inBasket],
-  )
 
   // Derived views
   const total = sum(weights)
@@ -392,35 +443,12 @@ export function IndexBuilder() {
           show
           complete={enoughAssets}
         >
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              void add(input)
-            }}
-            className="flex gap-2"
-            aria-busy={adding}
-          >
-            <label htmlFor="asset-address" className="sr-only">
-              Token contract address
-            </label>
-            <input
-              id="asset-address"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Paste a token address (0x…)"
-              spellCheck={false}
-              autoComplete="off"
-              aria-describedby="asset-help"
-              className="min-w-0 flex-1 rounded-lg border border-white/12 bg-black/30 px-3 py-2.5 font-mono text-sm text-ink placeholder:text-ink-dim focus:border-cyan/60 focus:outline-none"
-            />
-            <button
-              type="submit"
-              disabled={adding || input.trim().length === 0}
-              className="shrink-0 rounded-lg bg-white/10 px-4 py-2.5 font-display text-sm font-semibold uppercase tracking-wide text-ink transition-colors hover:bg-white/15 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {adding ? 'Checking…' : 'Add'}
-            </button>
-          </form>
+          <AssetSearch
+            chainId={chainId}
+            busy={adding}
+            excludeAddresses={assets.map((a) => a.address)}
+            onPick={(addr, sym) => void add(addr, sym)}
+          />
 
           {error && (
             <p role="alert" className="mt-2.5 font-mono text-sm leading-relaxed text-alert">
@@ -431,37 +459,14 @@ export function IndexBuilder() {
             We find the deepest Uniswap v2/v3/v4 pool automatically. Aerodrome-only tokens can't be used (no hook support).
           </p>
 
-          {suggestionsToShow.length > 0 && (
-            <div className="mt-5 border-t border-white/8 pt-5">
-              <div className="font-mono text-xs uppercase tracking-wide text-ink-dim">Popular on {cfg.name}</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {suggestionsToShow.map((s) => {
-                  const color = tokenVisual(s.symbol, s.address).color
-                  return (
-                    <button
-                      key={s.address}
-                      type="button"
-                      disabled={adding}
-                      aria-label={`Add ${s.symbol} to basket`}
-                      onClick={() => void add(s.address, s.symbol)}
-                      className="group relative flex items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.04] py-2 pl-2 pr-4 backdrop-blur transition-all hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
-                    >
-                      <span
-                        aria-hidden
-                        className="pointer-events-none absolute inset-0 rounded-full opacity-0 transition-opacity duration-200 group-hover:opacity-100"
-                        style={{ boxShadow: `0 0 0 1px ${color}66, 0 10px 26px -10px ${color}` }}
-                      />
-                      <AssetLogo address={s.address} symbol={s.symbol} chainId={chainId} size={26} />
-                      <span className="font-display text-base font-bold uppercase tracking-wide text-ink">{s.symbol}</span>
-                      <span aria-hidden className="font-num text-base leading-none" style={{ color }}>
-                        +
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
+          <PopularAssets
+            chainId={chainId}
+            chainName={cfg.name}
+            candidates={suggestions}
+            excludeAddresses={assets.map((a) => a.address)}
+            onPick={(addr, sym) => void add(addr, sym)}
+            busy={adding}
+          />
         </Step>
 
         {/* ── 2 · Set weights ────────────────────────────────────────── */}
@@ -491,68 +496,150 @@ export function IndexBuilder() {
             {assets.map((a, i) => {
               const color = tokenVisual(a.symbol, a.address).color
               const w = weights[i] ?? 0
+              const tier = liqTier(a.depthUsd)
+              const rk = recheck[a.address.toLowerCase()]
+              const sugg = suggestedWeight(a.depthUsd)
+              const showNudge = w > sugg
+              const tierColor = tier === 'verylow' ? '#ff3b52' : '#ff9248'
+              // Once the user accepts the suggested (safe) weight, the strip turns green.
+              const safeguarded = rk === 'set' && !showNudge
+              const stripColor = safeguarded ? '#34d6c4' : tierColor
               return (
                 <li
                   key={a.address}
-                  className="group relative flex items-center gap-3 overflow-hidden rounded-xl border border-white/10 p-3"
+                  className="group relative flex flex-col gap-2.5 overflow-hidden rounded-xl border border-white/10 p-3"
                   style={{ background: `linear-gradient(90deg, ${color}1f, ${color}0a 32%, rgba(255,255,255,0.02) 72%)` }}
                 >
                   <span aria-hidden className="absolute inset-y-0 left-0 w-[3px]" style={{ background: color }} />
-                  <AssetLogo
-                    address={a.address}
-                    symbol={a.symbol}
-                    chainId={chainId}
-                    size={34}
-                    discColor={`color-mix(in srgb, ${color} 55%, #000)`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-display text-sm font-bold uppercase tracking-wide text-ink">{a.symbol}</span>
-                      <span className="shrink-0 rounded border border-white/12 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-ink-dim">
-                        {a.venueLabel.replace('Uniswap ', '')}
-                      </span>
+                  <div className="flex items-center gap-3">
+                    <AssetLogo
+                      address={a.address}
+                      symbol={a.symbol}
+                      chainId={chainId}
+                      size={34}
+                      discColor={`color-mix(in srgb, ${color} 55%, #000)`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-display text-sm font-bold uppercase tracking-wide text-ink">{a.symbol}</span>
+                        <span className="shrink-0 rounded border border-white/12 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-ink-dim">
+                          {a.venueLabel.replace('Uniswap ', '')}
+                        </span>
+                        {tier !== 'ok' && (
+                          <span
+                            className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wide"
+                            style={{ color: tierColor, background: `${tierColor}1f` }}
+                          >
+                            {tier === 'verylow' ? 'Very low liq' : 'Low liq'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 truncate font-mono text-xs text-ink-dim">
+                        {a.depthUsd != null ? `~${formatUsdCompact(a.depthUsd)} liquidity` : shortAddr(a.address)}
+                      </div>
                     </div>
-                    <div className="mt-0.5 truncate font-mono text-xs text-ink-dim">
-                      {a.depthUsd != null ? `~${formatUsdCompact(a.depthUsd)} liquidity` : shortAddr(a.address)}
-                      {a.warnings.length > 0 && <span className="text-amber"> · shallow pool</span>}
-                    </div>
-                  </div>
 
-                  <div className="flex shrink-0 items-center overflow-hidden rounded-lg border border-white/12 bg-black/40">
+                    <div className="flex shrink-0 items-center overflow-hidden rounded-lg border border-white/12 bg-black/40">
+                      <button
+                        type="button"
+                        aria-label={`Decrease ${a.symbol} weight`}
+                        onClick={() => bump(i, -STEP)}
+                        disabled={w <= MIN}
+                        className="grid h-8 w-8 place-items-center font-num text-ink-dim transition-colors hover:bg-white/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        −
+                      </button>
+                      <WeightInput value={w} onCommit={(v) => setW(i, v)} label={a.symbol} />
+                      <button
+                        type="button"
+                        aria-label={`Increase ${a.symbol} weight`}
+                        onClick={() => bump(i, STEP)}
+                        className="grid h-8 w-8 place-items-center font-num text-ink-dim transition-colors hover:bg-white/5 hover:text-ink"
+                      >
+                        +
+                      </button>
+                    </div>
+
                     <button
                       type="button"
-                      aria-label={`Decrease ${a.symbol} weight`}
-                      onClick={() => bump(i, -STEP)}
-                      disabled={w <= MIN}
-                      className="grid h-8 w-8 place-items-center font-num text-ink-dim transition-colors hover:bg-white/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+                      aria-label={`Remove ${a.symbol}`}
+                      onClick={() => remove(i)}
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-ink-dim transition-colors hover:bg-white/5 hover:text-alert"
                     >
-                      −
-                    </button>
-                    <WeightInput value={w} onCommit={(v) => setW(i, v)} label={a.symbol} />
-                    <button
-                      type="button"
-                      aria-label={`Increase ${a.symbol} weight`}
-                      onClick={() => bump(i, STEP)}
-                      className="grid h-8 w-8 place-items-center font-num text-ink-dim transition-colors hover:bg-white/5 hover:text-ink"
-                    >
-                      +
+                      ×
                     </button>
                   </div>
 
-                  <button
-                    type="button"
-                    aria-label={`Remove ${a.symbol}`}
-                    onClick={() => remove(i)}
-                    className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-ink-dim transition-colors hover:bg-white/5 hover:text-alert"
-                  >
-                    ×
-                  </button>
+                  {tier !== 'ok' && (
+                    <div
+                      className="relative flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border px-2.5 py-2 font-mono text-[11px] leading-relaxed"
+                      style={{ borderColor: `${stripColor}40`, background: `${stripColor}12` }}
+                    >
+                      {safeguarded ? (
+                        <span className="text-teal">
+                          <span className="font-bold">✓ </span>
+                          Whilst large transactions may suffer slippage, this weighting safeguards as best as
+                          possible.
+                        </span>
+                      ) : (
+                        <>
+                          {!rk && (
+                            <span className="text-ink-dim">
+                              <span className="font-bold" style={{ color: stripColor }}>
+                                ⚠{' '}
+                              </span>
+                              {tier === 'verylow'
+                                ? 'Very thin pool — large index trades will slip badly here.'
+                                : 'Thin pool — sizable index trades may slip here.'}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => void recheckPool(i)}
+                            disabled={rk === 'checking'}
+                            className="rounded-md border border-white/15 px-2 py-1 uppercase tracking-wide text-ink transition-colors hover:border-cyan/60 hover:text-cyan disabled:opacity-50"
+                          >
+                            {rk === 'checking' ? 'Rechecking…' : 'Recheck pools'}
+                          </button>
+                          {rk === 'better' && <span className="text-teal">Found a deeper pool ✓</span>}
+                          {rk === 'none' && !showNudge && <span className="text-ink-dim">No deeper pool found.</span>}
+                          {showNudge && (rk === 'none' || rk === 'set') && (
+                            <>
+                              <span className="text-ink-dim">
+                                {rk === 'none' ? 'No deeper pool found — keep its weight small:' : 'Keep its weight small:'}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setW(i, sugg)
+                                  setRecheck((m) => ({ ...m, [a.address.toLowerCase()]: 'set' }))
+                                }}
+                                className="rounded-md px-2 py-1 font-bold uppercase tracking-wide text-black transition-transform hover:scale-[1.03]"
+                                style={{ background: tierColor }}
+                              >
+                                Set {sugg}%
+                              </button>
+                            </>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </li>
               )
             })}
           </ul>
 
-          <div aria-hidden className="mt-3.5 flex h-2.5 w-full overflow-hidden rounded-full bg-white/5">
+          {/* live bento — the basket reshapes into its index "box" as you tune weights */}
+          <div className="mt-4 flex items-center justify-between">
+            <span className="font-mono text-[11px] uppercase tracking-[0.15em] text-ink-faint">Your basket</span>
+            <span className="font-mono text-[10px] uppercase tracking-wide text-ink-faint">live preview</span>
+          </div>
+          <div className="mt-2">
+            <BasketBento items={bentoItems} aspect={3} />
+          </div>
+          {/* slim balance bar under the bento */}
+          <div aria-hidden className="mt-3 flex h-1.5 w-full overflow-hidden rounded-full bg-white/5">
             {assets.map((a, i) => (
               <div
                 key={a.address}
@@ -797,16 +884,20 @@ export function IndexBuilder() {
 
           {/* Deployer self-attestation — gates the launch CTA below. PLACEHOLDER legal
               copy; finalize with counsel before deploy is enabled on a public build. */}
-          <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-xl border border-white/10 bg-white/[0.02] p-3.5">
+          <label
+            className={`mt-5 flex cursor-pointer items-start gap-3 rounded-xl border bg-white/[0.02] p-4 transition-colors ${
+              acknowledged ? 'border-teal/40' : 'tick-glow border-cyan/40'
+            }`}
+          >
             <input
               type="checkbox"
               checked={acknowledged}
               onChange={(e) => setAcknowledged(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-cyan"
+              className="mt-0.5 h-5 w-5 shrink-0 accent-cyan"
             />
-            <span className="text-xs leading-relaxed text-ink-dim">
+            <span className="text-sm leading-relaxed text-ink-dim">
               I’m the creator and issuer of this index and responsible for my own legal and marketing
-              obligations. Spectrum is software — not financial, investment, legal, or tax advice — and is
+              obligations. Spectrum is software, not financial, investment, legal, or tax advice, and is
               provided without warranty.
             </span>
           </label>

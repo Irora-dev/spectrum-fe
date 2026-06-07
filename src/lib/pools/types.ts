@@ -49,9 +49,14 @@ export interface PoolCandidate {
   poolId: string | null
   /** V4 PoolKey; null otherwise. */
   ethPoolKey: PoolKey | null
-  /** ETH/WETH-side depth — the cross-version ranking metric. */
+  /** ETH/WETH-side depth (on-chain). Fallback ranking only — NOT comparable across
+   *  venues (V2/V3 are real reserves; V4's virtual reserve inflates concentrated L). */
   depthEth: number
+  /** USD liquidity used for ranking — DexScreener pool TVL when listed, else an
+   *  on-chain ETH-side estimate. */
   depthUsd: number | null
+  /** True when DexScreener lists this exact pool (real, cross-venue-comparable TVL). */
+  dexListed?: boolean
 }
 
 // Routing fields ready to drop into a `deployIndex` basket entry.

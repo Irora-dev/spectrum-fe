@@ -19,7 +19,7 @@ export function Privacy() {
 
       <LegalSection title="What's public by nature">
         <p>
-          Your wallet address and any onchain transactions you make are public on the blockchain — that
+          Your wallet address and any onchain transactions you make are public on the blockchain, which
           is inherent to a public ledger, not something Spectrum collects or controls.
         </p>
       </LegalSection>
