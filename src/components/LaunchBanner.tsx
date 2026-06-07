@@ -29,7 +29,7 @@ export function LaunchBanner({
     typeof window !== 'undefined'
       ? `${window.location.origin}/token?addr=${addr}&chain=${chainId}`
       : `https://spectrum/token?addr=${addr}&chain=${chainId}`
-  const text = `Just launched $${symbol} on Spectrum: ${holdings.length} assets, one token. Trade the whole basket in a single swap.`
+  const text = `Launched $${symbol} on Spectrum: a ${holdings.length}-asset onchain index token.`
   const xHref = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`
   const copy = async () => {
     try {
@@ -78,7 +78,7 @@ export function LaunchBanner({
             ${symbol} is live
           </h2>
           <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink-dim">
-            {name} · {holdings.length} assets, one token. Share it, and earn from every trade.
+            {name} · {holdings.length} assets in one onchain index token.
           </p>
           <div className="mt-4 flex flex-wrap gap-2.5">
             <a

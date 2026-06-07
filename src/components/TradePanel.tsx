@@ -94,7 +94,7 @@ export function TradePanel({ ix, sig, buyInk }: { ix: IndexData; sig: string; bu
 
       {/* fee / flywheel callout */}
       <div className="mt-4 rounded-lg border border-white/10 bg-white/[0.02] p-3">
-        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-cyan">1% swap fee · paid to holders</div>
+        <div className="font-mono text-[10px] font-bold uppercase tracking-[0.15em] text-cyan">1% protocol fee · split onchain</div>
         <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[10px] text-ink-dim">
           <span><span className="text-ink">60%</span> holders</span>
           <span><span className="text-ink">30%</span> creator</span>

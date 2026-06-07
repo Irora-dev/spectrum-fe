@@ -20,7 +20,7 @@ export function Launch() {
           </div>
           <p className="max-w-md text-pretty text-sm leading-relaxed text-ink-dim sm:text-right sm:text-balance">
             Pick a basket of tokens, weight it, and deploy one tradeable index token. Buyers mint straight into
-            the pool, and you earn from the volume, not a management fee.
+            the pool, and there is no management fee.
           </p>
         </div>
       </header>

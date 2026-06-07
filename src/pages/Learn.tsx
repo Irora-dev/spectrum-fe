@@ -28,8 +28,8 @@ export function Learn() {
         </h1>
         <p className="mt-6 max-w-2xl text-base leading-relaxed text-ink-dim">
           Spectrum is a launchpad for onchain index tokens, built on Uniswap V4 and PRISM. Anyone can
-          bundle a thesis — AI, DeFi, memes, RWAs — into a single token that trades as easily as any
-          ERC-20, and pays the people who hold it.
+          bundle a thesis (AI, DeFi, memes, RWAs) into a single token that trades as easily as any
+          ERC-20.
         </p>
       </header>
 
@@ -37,7 +37,7 @@ export function Learn() {
         <p>
           An index token holds many assets at fixed weights and trades as a single token. Buy one to
           own the entire basket; sell it in one transaction. No bridging between a dozen positions, no
-          rebalancing — the thesis is the token.
+          rebalancing; the thesis is the token.
         </p>
       </Section>
 
@@ -45,7 +45,7 @@ export function Learn() {
         <p>
           Each index <em className="not-italic text-ink">is</em> its own Uniswap V4 hook and its own
           liquidity. Buying routes through a custom hook that mints shares and deposits the underlying
-          assets straight into the pool — no vault, no wrapper, no second transaction.
+          assets straight into the pool: no vault, no wrapper, no second transaction.
         </p>
         <p>
           Because the token is its own liquidity, the price always reflects the real units you own:
@@ -54,10 +54,10 @@ export function Learn() {
         </p>
       </Section>
 
-      <Section label="03 · The flywheel" title="Every trade pays holders">
+      <Section label="03 · The fee" title="The fee, and where it goes">
         <p>
-          A 1% fee on every buy and every sell — but instead of charging holders, it pays them. It
-          splits three ways:
+          The protocol takes a fixed 1% fee on every mint and redeem and routes it onchain by a split
+          written into the contract:
         </p>
         <div className="grid grid-cols-3 gap-3">
           {FEE_SPLIT.map(([pct, who, c]) => (
@@ -72,15 +72,15 @@ export function Learn() {
           ))}
         </div>
         <p>
-          Holders&rsquo; share accrues as NAV growth and is paid out when they exit. Hold the token, get
-          paid; launch the token, get paid; and the PRISM ecosystem compounds underneath it all.
+          The split is fixed and autonomous: no one sets, changes, or directs it. The holder portion is
+          not charged to holders; it stays within the index rather than being extracted as a fee.
         </p>
       </Section>
 
       <Section label="04 · Why it's different" title="Built without the seam">
         <p>
           Every earlier index token was two things stitched together: a vault that held the assets and
-          a separate market that priced them. Every failure traced back to that seam — management fees,
+          a separate market that priced them. Every failure traced back to that seam: management fees,
           rented liquidity that walked away, closed-end discounts to NAV, impermanent loss.
         </p>
         <p>
@@ -92,8 +92,9 @@ export function Learn() {
       <Section label="05 · Launch" title="Anyone can launch one">
         <p>
           Win a launch slot, choose any assets and weights, and your index deploys with a hook address
-          mined in your browser. You earn 30% of every trade for as long as it trades. Pool routing,
-          fees and tick spacing are detected automatically — you just pick the assets.
+          mined in your browser. As the deployer you are recorded onchain as the index&rsquo;s creator,
+          entitled to its 30% fee share for as long as it trades. Pool routing, fees and tick spacing are
+          detected automatically; you just pick the assets.
         </p>
         <Link
           to="/launch"
@@ -107,8 +108,8 @@ export function Learn() {
         <p>
           Indexes are priced in <span className="text-ink">DSTABLE</span>, the ecosystem&rsquo;s
           dollar-pegged settlement currency, so a quote always reads as a familiar number. PRISM owns
-          the machine — a claim on every index&rsquo;s fees and on dstable&rsquo;s yield — and its supply
-          shrinks through buy &amp; burn as Spectrum grows. Revenue up, supply down.
+          the machine: it has a claim on every index&rsquo;s fees and on the dstable reserve, and its supply
+          shrinks through buy &amp; burn as the system is used.
         </p>
       </Section>
 

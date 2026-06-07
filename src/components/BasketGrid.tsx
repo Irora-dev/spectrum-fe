@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { IndexSummary } from '../lib/spectrum/index-data'
 import { IndexAvatar } from './IndexAvatar'
@@ -18,31 +18,20 @@ const keyOf = (ix: IndexSummary) => `${ix.chainId}:${ix.address}`
 // The non-highlighted baskets as a calm three-up grid. Each card shows the
 // essentials — name, ticker, price and a real 7d NAV chart — plus the basket's
 // token icons. Hovering a token icon pops its live price; hovering the card
-// reveals a "Visit" button (to the live deploy site). Cards reveal on scroll,
-// the price counts up, and the day's best performers wear a ▲ badge.
+// reveals a "Visit" button (to its page). Cards reveal on scroll and the price
+// counts up.
 export function BasketGrid({ indexes }: { indexes: IndexSummary[] }) {
-  // Flag the two strongest 24h movers (positive only) for a top-gainer ribbon.
-  const topGainers = useMemo(() => {
-    return new Set(
-      [...indexes]
-        .filter((i) => (i.change24hPct ?? 0) > 0)
-        .sort((a, b) => (b.change24hPct ?? 0) - (a.change24hPct ?? 0))
-        .slice(0, 2)
-        .map(keyOf),
-    )
-  }, [indexes])
-
   if (indexes.length === 0) return null
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {indexes.map((ix, i) => (
-        <Card key={keyOf(ix)} ix={ix} index={i} topGainer={topGainers.has(keyOf(ix))} />
+        <Card key={keyOf(ix)} ix={ix} index={i} />
       ))}
     </div>
   )
 }
 
-function Card({ ix, index, topGainer }: { ix: IndexSummary; index: number; topGainer: boolean }) {
+function Card({ ix, index }: { ix: IndexSummary; index: number }) {
   const [tok, setTok] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   const shown = useInViewOnce(ref)
@@ -80,13 +69,6 @@ function Card({ ix, index, topGainer }: { ix: IndexSummary; index: number; topGa
           className="pointer-events-none absolute -top-16 left-1/2 h-32 w-2/3 -translate-x-1/2 rounded-full opacity-0 blur-3xl transition-opacity duration-300 group-hover/card:opacity-25"
           style={{ background: sig }}
         />
-
-        {/* top-gainer ribbon */}
-        {topGainer && (
-          <div className="absolute -left-px -top-px z-10 rounded-br-xl rounded-tl-2xl bg-cyan/15 px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-[0.14em] text-cyan">
-            ▲ Top gainer
-          </div>
-        )}
 
         {/* identity · price (header links to the index page) */}
         <Link to={to} className="relative flex items-start justify-between gap-2">

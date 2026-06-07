@@ -4,7 +4,7 @@ import { BasketGrid } from '../components/BasketGrid'
 import { IndexListRow } from '../components/IndexListRow'
 import { getIndexMeta } from '../lib/spectrum/metadata'
 import { SECTOR_COLOR, SECTORS, sectorOf, type Sector } from '../lib/spectrum/sectors'
-import { formatPct, formatUsdCompact } from '../lib/spectrum/format'
+import { formatUsdCompact } from '../lib/spectrum/format'
 import { useCountUp } from '../lib/motion'
 
 type ChainFilter = 'all' | 1 | 8453
@@ -32,11 +32,8 @@ export function Explore() {
   const totalTvl = all.reduce((s, ix) => s + (ix.aumUsd || 0), 0)
   const hasBoth = all.some((i) => i.chainId === 1) && all.some((i) => i.chainId === 8453)
   const chainCount = new Set(all.map((i) => i.chainId)).size
-  const topPerf = useMemo(
-    () =>
-      all
-        .filter((i) => i.change24hPct != null)
-        .sort((a, b) => (b.change24hPct ?? -Infinity) - (a.change24hPct ?? -Infinity))[0],
+  const creatorCount = useMemo(
+    () => new Set(all.map((i) => i.deployer?.toLowerCase()).filter(Boolean)).size,
     [all],
   )
 
@@ -97,12 +94,7 @@ export function Explore() {
           <div className="mt-8 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 sm:grid-cols-4">
             <Stat label="Total value" value={isLoading ? '—' : formatUsdCompact(tvlNum)} />
             <Stat label="Indexes" value={isLoading ? '—' : String(Math.round(idxNum))} />
-            <Stat
-              label="Top 24h"
-              value={isLoading || !topPerf ? '—' : `$${topPerf.symbol}`}
-              sub={topPerf?.change24hPct != null ? formatPct(topPerf.change24hPct) : undefined}
-              subColor={(topPerf?.change24hPct ?? 0) >= 0 ? '#35e0ff' : '#ff4db8'}
-            />
+            <Stat label="Creators" value={isLoading ? '—' : String(creatorCount)} />
             <Stat label="Networks" value={isLoading ? '—' : `${chainCount}`} sub={hasBoth ? 'Base · ETH' : undefined} />
           </div>
         </div>

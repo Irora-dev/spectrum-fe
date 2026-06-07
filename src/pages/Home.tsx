@@ -1,27 +1,20 @@
 import { Link } from 'react-router-dom'
 import { useAllIndexes } from '../lib/spectrum/hooks'
-import type { IndexSummary } from '../lib/spectrum/index-data'
-import { IndexSpotlight } from '../components/IndexSpotlight'
 import { BasketGrid } from '../components/BasketGrid'
 import { ConceptOrbit } from '../components/ConceptReveal'
 import { SpectrumWordmark } from '../components/SpectrumWordmark'
 
-const keyOf = (ix: IndexSummary) => `${ix.chainId}:${ix.address}`
-
 // The landing page: a cinematic full-bleed hero (the assets-converge-into-one
 // animation behind the wordmark) that explains the concept at a glance, then a
-// curated taste — the top-two spotlight + a short trending row. The full
+// plain directory preview of the live indexes by total value. The full
 // searchable directory lives at /explore.
 export function Home() {
   const { data, isLoading } = useAllIndexes()
   const all = data ?? []
 
-  const featured = all.slice(0, 2)
-  const fk = new Set(featured.map(keyOf))
-  const trending = [...all]
-    .filter((i) => !fk.has(keyOf(i)))
-    .sort((a, b) => (b.change24hPct ?? -Infinity) - (a.change24hPct ?? -Infinity))
-    .slice(0, 6)
+  // A plain, factual directory preview: the largest indexes by total value (the
+  // list arrives AUM-sorted). No "featured" or "trending" curation.
+  const preview = all.slice(0, 6)
 
   return (
     <div className="space-y-14">
@@ -95,30 +88,24 @@ export function Home() {
         </div>
       </section>
 
-      {/* ── featured spotlight + trending teaser ─────────────────────────── */}
-      {!isLoading && featured.length > 0 && (
-        <section className="space-y-8">
-          <IndexSpotlight indexes={featured} />
-
-          {trending.length > 0 && (
-            <div className="space-y-4">
-              <div className="flex items-end justify-between border-b border-white/10 pb-3">
-                <div>
-                  <h2 className="font-display text-sm font-semibold uppercase tracking-[0.2em] text-ink">Trending now</h2>
-                  <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
-                    Top movers · 24h
-                  </p>
-                </div>
-                <Link
-                  to="/explore"
-                  className="shrink-0 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan transition-colors hover:text-ink"
-                >
-                  Explore all {all.length} →
-                </Link>
-              </div>
-              <BasketGrid indexes={trending} />
+      {/* ── live indexes: plain directory preview, sorted by total value ─── */}
+      {!isLoading && preview.length > 0 && (
+        <section className="space-y-4">
+          <div className="flex items-end justify-between border-b border-white/10 pb-3">
+            <div>
+              <h2 className="font-display text-sm font-semibold uppercase tracking-[0.2em] text-ink">Live indexes</h2>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
+                Sorted by total value
+              </p>
             </div>
-          )}
+            <Link
+              to="/explore"
+              className="shrink-0 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan transition-colors hover:text-ink"
+            >
+              Explore all {all.length} →
+            </Link>
+          </div>
+          <BasketGrid indexes={preview} />
         </section>
       )}
     </div>
