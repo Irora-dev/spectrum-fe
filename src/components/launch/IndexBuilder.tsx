@@ -21,12 +21,17 @@ import {
 import { tokenVisual } from '../../lib/spectrum/token-meta'
 import { formatUsdCompact, shortAddr } from '../../lib/spectrum/format'
 import { resolveCreator } from '../../lib/spectrum/creator'
-import { useAllIndexes } from '../../lib/spectrum/hooks'
+import { useAllIndexes, useDeployPrice } from '../../lib/spectrum/hooks'
 import { AssetLogo } from '../AssetLogo'
 import { BasketBento, type BentoItem } from '../BasketBento'
 import { DeployPortal } from './DeployPortal'
 import { AssetSearch } from './AssetSearch'
 import { PopularAssets } from './PopularAssets'
+import { MintOrb, type MintStatus } from './MintOrb'
+import { BasketHealth } from './BasketHealth'
+import { LiveTokenCard } from './LiveTokenCard'
+import { HookForge } from './HookForge'
+import { WeightStrip } from './WeightStrip'
 import { useDeployIndex } from '../../lib/spectrum/use-deploy'
 import { SECTORS, SECTOR_COLOR, type Sector } from '../../lib/spectrum/sectors'
 
@@ -72,30 +77,36 @@ async function resolveAsset(addr: string, chainId: number, knownSymbol?: string)
 const DEFAULT_GRAD = 'linear-gradient(135deg, #35e0ff, #a48bff 55%, #ff4db8)'
 const HORIZONS = ['Swing', 'This cycle', 'Long-term'] as const
 
-// Liquidity tiers for a basket constituent's routing pool. A thin pool means every
-// index mint/redeem routes a slice of the trade through it, so it slips.
-const LOW_LIQ_USD = 100_000
-const VERY_LOW_LIQ_USD = 10_000
+// Liquidity tiers for a basket constituent's routing pool. Depth only matters
+// relative to how much of the basket routes through the pool, so a pool is flagged
+// only when it's genuinely thin (< VERY_LOW, any weight) OR it's modest (≤ WARN_LIQ)
+// AND the asset dominates the basket (> HEAVY_WEIGHT_PCT) — where one mint/redeem
+// pushes a large slice through it. Healthy pools, and small positions in modest
+// pools, draw no warning.
+const VERY_LOW_LIQ_USD = 20_000
+const WARN_LIQ_USD = 50_000
+const HEAVY_WEIGHT_PCT = 60
 type LiqTier = 'ok' | 'low' | 'verylow'
-function liqTier(depthUsd: number | null): LiqTier {
-  if (depthUsd == null) return 'low'
-  if (depthUsd < VERY_LOW_LIQ_USD) return 'verylow'
-  if (depthUsd < LOW_LIQ_USD) return 'low'
+function liqTier(depthUsd: number | null, weightPct: number): LiqTier {
+  if (depthUsd != null && depthUsd < VERY_LOW_LIQ_USD) return 'verylow'
+  if ((depthUsd == null || depthUsd <= WARN_LIQ_USD) && weightPct > HEAVY_WEIGHT_PCT) return 'low'
   return 'ok'
 }
-// Suggested max weight so a thin pool isn't a bottleneck — ~$20k of pool depth per
-// 1% of basket weight, clamped to the builder's min/cap.
+// When a pool is flagged, suggest a weight that clears it: a minimal slice for a
+// genuinely thin pool, otherwise ease the asset back under the "dominant" threshold.
 function suggestedWeight(depthUsd: number | null): number {
-  if (depthUsd == null) return MIN
-  return Math.max(MIN, Math.min(CAP, Math.round(depthUsd / 20_000)))
+  if (depthUsd != null && depthUsd < VERY_LOW_LIQ_USD) return MIN
+  return Math.min(CAP, HEAVY_WEIGHT_PCT)
 }
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
 // One stage of the launch flow. Renders nothing until `show` flips true, then fades
-// up into place and (for steps past the first) gently scrolls itself into view — so
-// the page reveals one focused area at a time instead of showing everything at once.
+// up into place. Only step 4 (Name) auto-scrolls on reveal — it's gated behind the
+// deliberate "Confirm basket" click. Every other step reveals REACTIVELY from data
+// (assets added → 2/3; name+ticker valid → 5), so scrolling would yank the user away
+// mid-task — e.g. pulling them to Deploy while they're still filling name/desc/socials.
 function Step({
   index,
   title,
@@ -120,7 +131,7 @@ function Step({
     }
     const t0 = window.setTimeout(() => setEntered(true), 30)
     let t: number | undefined
-    if (index > 1 && !prefersReducedMotion()) {
+    if (index === 4 && !prefersReducedMotion()) {
       t = window.setTimeout(() => ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 200)
     }
     return () => {
@@ -234,6 +245,52 @@ function Stepper({ steps, maxStep, current }: { steps: StepState[]; maxStep: num
   )
 }
 
+// ── draft autosave ────────────────────────────────────────────────────────────
+// Persist the in-progress index per chain so a refresh / accidental nav doesn't wipe
+// it. Resolved assets carry their route + decimals, so a restore needs no re-fetch.
+// (The legal acknowledgment is intentionally NOT persisted — re-checked each session.)
+interface BuilderDraft {
+  assets: BuilderAsset[]
+  weights: number[]
+  name: string
+  symbol: string
+  sector: Sector | ''
+  tagline: string
+  thesis: string
+  horizon: string
+  xHandle: string
+  creatorName: string
+  basketConfirmed: boolean
+  maxStep: number
+}
+const DRAFT_PREFIX = 'spectrum:launch-draft:v1:'
+const draftKey = (chainId: number) => `${DRAFT_PREFIX}${chainId}`
+const draftIsEmpty = (d: BuilderDraft) => d.assets.length === 0 && !d.name.trim() && !d.symbol.trim()
+function loadDraft(chainId: number): BuilderDraft | null {
+  try {
+    const raw = localStorage.getItem(draftKey(chainId))
+    if (!raw) return null
+    const d = JSON.parse(raw)
+    return d && Array.isArray(d.assets) && Array.isArray(d.weights) ? (d as BuilderDraft) : null
+  } catch {
+    return null
+  }
+}
+function saveDraft(chainId: number, d: BuilderDraft) {
+  try {
+    localStorage.setItem(draftKey(chainId), JSON.stringify(d))
+  } catch {
+    /* storage full / unavailable — drafting is best-effort */
+  }
+}
+function clearDraft(chainId: number) {
+  try {
+    localStorage.removeItem(draftKey(chainId))
+  } catch {
+    /* ignore */
+  }
+}
+
 export function IndexBuilder() {
   const chainId = useActiveChainId()
   const cfg = useMemo(() => chainCfg(chainId), [chainId])
@@ -244,6 +301,7 @@ export function IndexBuilder() {
   const [name, setName] = useState('')
   const [symbol, setSymbol] = useState('')
   const [adding, setAdding] = useState(false)
+  const [minting, setMinting] = useState<{ address: string; symbol?: string; status: MintStatus } | null>(null)
   // Per-asset (keyed by address) state for the "recheck pools" action on thin pools.
   const [recheck, setRecheck] = useState<Record<string, 'checking' | 'better' | 'none' | 'set'>>({})
   const [error, setError] = useState<string | null>(null)
@@ -278,18 +336,94 @@ export function IndexBuilder() {
   // Deployer self-attestation that gates the launch CTA (placeholder legal copy in Step 5).
   const [acknowledged, setAcknowledged] = useState(false)
   const [maxStep, setMaxStep] = useState(1)
+  const [restored, setRestored] = useState(false)
+  const hydrating = useRef(false)
 
+  // On mount + chain switch, restore that chain's saved draft (or reset to empty).
   useEffect(() => {
+    hydrating.current = true
+    const d = loadDraft(chainId)
+    setError(null)
+    setDeploying(false)
+    setAcknowledged(false)
+    if (d) {
+      setAssets(d.assets)
+      setWeights(d.weights)
+      setName(d.name)
+      setSymbol(d.symbol)
+      setSector(d.sector)
+      setTagline(d.tagline)
+      setThesis(d.thesis)
+      setHorizon(d.horizon)
+      setXHandle(d.xHandle)
+      setCreatorName(d.creatorName)
+      setBasketConfirmed(d.basketConfirmed)
+      setMaxStep(d.maxStep)
+      setRestored(true)
+    } else {
+      setAssets([])
+      setWeights([])
+      setName('')
+      setSymbol('')
+      setSector('')
+      setTagline('')
+      setThesis('')
+      setHorizon('')
+      setXHandle('')
+      setCreatorName('')
+      setBasketConfirmed(false)
+      setMaxStep(1)
+      setRestored(false)
+    }
+  }, [chainId])
+
+  // Persist the draft as it changes (skip the render that just hydrated it).
+  useEffect(() => {
+    if (hydrating.current) {
+      hydrating.current = false
+      return
+    }
+    const d: BuilderDraft = {
+      assets,
+      weights,
+      name,
+      symbol,
+      sector,
+      tagline,
+      thesis,
+      horizon,
+      xHandle,
+      creatorName,
+      basketConfirmed,
+      maxStep,
+    }
+    if (draftIsEmpty(d)) clearDraft(chainId)
+    else saveDraft(chainId, d)
+  }, [assets, weights, name, symbol, sector, tagline, thesis, horizon, xHandle, creatorName, basketConfirmed, maxStep, chainId])
+
+  // Once the index actually deploys, drop the saved draft.
+  useEffect(() => {
+    if (deploy.status === 'success') clearDraft(chainId)
+  }, [deploy.status, chainId])
+
+  // Discard the draft + reset the builder to a blank slate.
+  const startFresh = useCallback(() => {
+    clearDraft(chainId)
     setAssets([])
     setWeights([])
-    setError(null)
+    setName('')
+    setSymbol('')
     setSector('')
     setTagline('')
     setThesis('')
     setHorizon('')
-    setDeploying(false)
+    setXHandle('')
+    setCreatorName('')
     setBasketConfirmed(false)
+    setAcknowledged(false)
     setMaxStep(1)
+    setError(null)
+    setRestored(false)
   }, [chainId])
 
   const inBasket = useCallback(
@@ -314,13 +448,18 @@ export function IndexBuilder() {
         return
       }
       setAdding(true)
+      // Mint overlay: the orb forms while we validate + route the asset on-chain
+      // (covers the findBestPool latency), then flips to "Added".
+      setMinting({ address: raw, symbol: knownSymbol, status: 'forming' })
       try {
         const a = await resolveAsset(raw, chainId, knownSymbol)
         setAssets((prev) => [...prev, a])
         // addAsset borrows from existing holdings to keep Σ = CAP, so it assumes a
         // basket that already sums to CAP — seed the first asset at the full CAP.
         setWeights((prev) => (prev.length === 0 ? [CAP] : addAsset(prev)))
+        setMinting({ address: raw, symbol: a.symbol, status: 'added' })
       } catch (e) {
+        setMinting(null)
         if (e instanceof PoolDetectionError) setError(e.message)
         else setError('Could not validate this asset — check the address and the selected network.')
       } finally {
@@ -412,6 +551,9 @@ export function IndexBuilder() {
   const canDeploy = weightsValid && symbolValid && nameValid && enoughAssets
   // The launch CTA also requires the deployer acknowledgment (Step 5 checkbox).
   const readyToDeploy = canDeploy && acknowledged
+  // Live Dutch-auction deploy cost — only polled once the basket is deployable.
+  const { data: deployPrice } = useDeployPrice(chainId, canDeploy)
+  const deployCostEth = deployPrice?.priceWei != null ? Number(deployPrice.priceWei) / 1e18 : null
 
   // Progressive reveal: the highest stage the basket has earned (monotonic, so editing
   // an earlier step never collapses a later one).
@@ -435,6 +577,31 @@ export function IndexBuilder() {
       <div className="mx-auto max-w-5xl space-y-6">
         <Stepper steps={stepState} maxStep={maxStep} current={currentStep} />
 
+        {restored && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-cyan/30 bg-cyan/[0.06] px-4 py-2.5">
+            <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-cyan">
+              ↻ Picked up your saved draft
+            </span>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={startFresh}
+                className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-dim underline-offset-4 transition-colors hover:text-ink hover:underline"
+              >
+                Start fresh
+              </button>
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={() => setRestored(false)}
+                className="text-ink-faint transition-colors hover:text-ink"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── 1 · Add assets ─────────────────────────────────────────── */}
         <Step
           index={1}
@@ -449,6 +616,17 @@ export function IndexBuilder() {
             excludeAddresses={assets.map((a) => a.address)}
             onPick={(addr, sym) => void add(addr, sym)}
           />
+
+          {minting && (
+            <MintOrb
+              key={minting.address}
+              address={minting.address}
+              symbol={minting.symbol}
+              chainId={chainId}
+              status={minting.status}
+              onDone={() => setMinting(null)}
+            />
+          )}
 
           {error && (
             <p role="alert" className="mt-2.5 font-mono text-sm leading-relaxed text-alert">
@@ -496,7 +674,7 @@ export function IndexBuilder() {
             {assets.map((a, i) => {
               const color = tokenVisual(a.symbol, a.address).color
               const w = weights[i] ?? 0
-              const tier = liqTier(a.depthUsd)
+              const tier = liqTier(a.depthUsd, w)
               const rk = recheck[a.address.toLowerCase()]
               const sugg = suggestedWeight(a.depthUsd)
               const showNudge = w > sugg
@@ -539,13 +717,13 @@ export function IndexBuilder() {
                       </div>
                     </div>
 
-                    <div className="flex shrink-0 items-center overflow-hidden rounded-lg border border-white/12 bg-black/40">
+                    <div className="flex shrink-0 items-center overflow-hidden rounded-xl border border-white/15 bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]">
                       <button
                         type="button"
                         aria-label={`Decrease ${a.symbol} weight`}
                         onClick={() => bump(i, -STEP)}
                         disabled={w <= MIN}
-                        className="grid h-8 w-8 place-items-center font-num text-ink-dim transition-colors hover:bg-white/5 hover:text-ink disabled:cursor-not-allowed disabled:opacity-30"
+                        className="grid h-10 w-10 place-items-center font-num text-lg font-medium leading-none text-ink-dim transition-colors hover:bg-white/10 hover:text-cyan active:bg-white/[0.14] disabled:cursor-not-allowed disabled:opacity-25 disabled:hover:bg-transparent disabled:hover:text-ink-dim"
                       >
                         −
                       </button>
@@ -554,7 +732,7 @@ export function IndexBuilder() {
                         type="button"
                         aria-label={`Increase ${a.symbol} weight`}
                         onClick={() => bump(i, STEP)}
-                        className="grid h-8 w-8 place-items-center font-num text-ink-dim transition-colors hover:bg-white/5 hover:text-ink"
+                        className="grid h-10 w-10 place-items-center font-num text-lg font-medium leading-none text-ink-dim transition-colors hover:bg-white/10 hover:text-cyan active:bg-white/[0.14]"
                       >
                         +
                       </button>
@@ -564,7 +742,7 @@ export function IndexBuilder() {
                       type="button"
                       aria-label={`Remove ${a.symbol}`}
                       onClick={() => remove(i)}
-                      className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-ink-dim transition-colors hover:bg-white/5 hover:text-alert"
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-base text-ink-dim transition-colors hover:bg-white/8 hover:text-alert"
                     >
                       ×
                     </button>
@@ -590,7 +768,7 @@ export function IndexBuilder() {
                               </span>
                               {tier === 'verylow'
                                 ? 'Very thin pool — large index trades will slip badly here.'
-                                : 'Thin pool — sizable index trades may slip here.'}
+                                : `Over ${HEAVY_WEIGHT_PCT}% of the basket in a thin pool — sizable mints/redeems may slip here.`}
                             </span>
                           )}
                           <button
@@ -606,7 +784,7 @@ export function IndexBuilder() {
                           {showNudge && (rk === 'none' || rk === 'set') && (
                             <>
                               <span className="text-ink-dim">
-                                {rk === 'none' ? 'No deeper pool found — keep its weight small:' : 'Keep its weight small:'}
+                                {rk === 'none' ? 'No deeper pool found — ease its weight:' : 'Ease its weight:'}
                               </span>
                               <button
                                 type="button"
@@ -630,13 +808,24 @@ export function IndexBuilder() {
             })}
           </ul>
 
-          {/* live bento — the basket reshapes into its index "box" as you tune weights */}
+          {/* stable weight strip — tiles stay put; drag a shared edge to transfer
+              weight between the two neighbours (no reflow / reorder) */}
           <div className="mt-4 flex items-center justify-between">
             <span className="font-mono text-[11px] uppercase tracking-[0.15em] text-ink-faint">Your basket</span>
-            <span className="font-mono text-[10px] uppercase tracking-wide text-ink-faint">live preview</span>
+            <span className="font-mono text-[10px] uppercase tracking-wide text-ink-faint">
+              {assets.length > 1 ? 'drag an edge ↔ to reweight' : 'live preview'}
+            </span>
           </div>
           <div className="mt-2">
-            <BasketBento items={bentoItems} aspect={3} />
+            <WeightStrip
+              assets={assets}
+              weights={weights}
+              min={MIN}
+              chainId={chainId}
+              onResize={(i, wi, wj) =>
+                setWeights((prev) => prev.map((w, k) => (k === i ? wi : k === i + 1 ? wj : w)))
+              }
+            />
           </div>
           {/* slim balance bar under the bento */}
           <div aria-hidden className="mt-3 flex h-1.5 w-full overflow-hidden rounded-full bg-white/5">
@@ -657,6 +846,8 @@ export function IndexBuilder() {
               {total === CAP ? '✓ Balanced · 100%' : `Σ ${total}%`}
             </span>
           </div>
+
+          <BasketHealth assets={assets} weights={weights} />
         </Step>
 
         {/* ── 3 · Review & confirm basket ────────────────────────────── */}
@@ -698,13 +889,20 @@ export function IndexBuilder() {
           show={maxStep >= 4}
           complete={nameValid && symbolValid}
         >
-          <div className="mb-6">
-            <div className="font-mono text-[13px] uppercase tracking-[0.15em] text-ink-dim">
-              Your basket · {assets.length} assets · starts at $1.00
-            </div>
-            <div className="mt-2.5">
-              <BasketBento items={bentoItems} aspect={1.7} />
-            </div>
+          <div className="mb-6 space-y-3">
+            <LiveTokenCard
+              name={name}
+              symbol={symbol}
+              sector={sector || undefined}
+              sectorColor={sector ? SECTOR_COLOR[sector] : undefined}
+              tagline={tagline || undefined}
+              assets={assets}
+              weights={weights}
+              blend={blend}
+              chainId={chainId}
+              glowGrad={glowGrad}
+            />
+            <BasketBento items={bentoItems} aspect={2.6} />
           </div>
 
           <div className="relative">
@@ -882,6 +1080,8 @@ export function IndexBuilder() {
             <Check ok={symbolValid}>Ticker set</Check>
           </ul>
 
+          <HookForge status={deploy.status} attempts={deploy.attempts} predicted={deploy.predicted} />
+
           {/* Deployer self-attestation — gates the launch CTA below. PLACEHOLDER legal
               copy; finalize with counsel before deploy is enabled on a public build. */}
           <label
@@ -918,14 +1118,23 @@ export function IndexBuilder() {
               {assets.length} {assets.length === 1 ? 'asset' : 'assets'} · starts at $1.00 NAV
             </div>
           </div>
-          <button
-            type="button"
-            disabled={!readyToDeploy}
-            onClick={startDeploy}
-            className="w-full shrink-0 rounded-xl bg-black px-10 py-4 font-display text-lg font-bold uppercase tracking-[0.2em] text-white transition-transform hover:enabled:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
-          >
-            Deploy →
-          </button>
+          <div className="flex w-full shrink-0 flex-col items-center gap-2 sm:w-auto sm:items-end">
+            <button
+              type="button"
+              disabled={!readyToDeploy}
+              onClick={startDeploy}
+              className="w-full rounded-xl bg-black px-10 py-4 font-display text-lg font-bold uppercase tracking-[0.2em] text-white transition-transform hover:enabled:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            >
+              Deploy →
+            </button>
+            {canDeploy && (
+              <span className={`font-mono text-[11px] uppercase tracking-[0.12em] ${readyToDeploy ? 'text-black/70' : 'text-ink-dim'}`}>
+                {deployCostEth != null
+                  ? `≈ ${deployCostEth.toLocaleString(undefined, { maximumFractionDigits: 3 })} ETH to deploy · auction`
+                  : '≈ 0.1 ETH floor · auction'}
+              </span>
+            )}
+          </div>
         </div>
         {canDeploy && !acknowledged && (
           <p className="text-center font-mono text-xs text-ink-dim">
@@ -1000,7 +1209,7 @@ function WeightInput({ value, onCommit, label }: { value: number; onCommit: (v: 
     setResync((r) => r + 1)
   }
   return (
-    <div className="flex w-16 items-center justify-center border-x border-white/10 py-1">
+    <div className="flex h-10 w-[4.5rem] items-center justify-center gap-0.5 border-x border-white/10 bg-black/25">
       <input
         value={text}
         onChange={(e) => setText(e.target.value.replace(/[^0-9]/g, '').slice(0, 3))}
@@ -1011,9 +1220,9 @@ function WeightInput({ value, onCommit, label }: { value: number; onCommit: (v: 
         }}
         inputMode="numeric"
         aria-label={`${label} weight percent`}
-        className="w-7 bg-transparent text-right font-num text-sm font-semibold tabular-nums text-ink focus:outline-none"
+        className="w-8 bg-transparent text-right font-num text-lg font-bold tabular-nums text-ink focus:outline-none"
       />
-      <span className="font-num text-sm text-ink-dim">%</span>
+      <span className="font-num text-xs font-semibold text-ink-dim">%</span>
     </div>
   )
 }

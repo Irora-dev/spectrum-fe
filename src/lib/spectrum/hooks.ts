@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import type { Address } from 'viem'
-import { DEFAULT_CHAIN_ID } from '../chain/chains'
+import { chainCfg, DEFAULT_CHAIN_ID } from '../chain/chains'
+import { clientFor } from '../chain/rpc'
+import { factoryDeployAbi } from './abis'
 import {
   getIndexData,
   getUserHoldings,
@@ -24,8 +26,8 @@ export function useAllIndexes() {
   return useQuery({
     queryKey: ['spectrum', 'indexes', 'all'],
     queryFn: listAllIndexes,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
   })
 }
 
@@ -115,8 +117,8 @@ export function usePortfolio(address?: string) {
     queryKey: ['spectrum', 'portfolio', address?.toLowerCase(), sig],
     queryFn: () => getUserHoldings(address as Address, indexes),
     enabled: !!address && indexes.length > 0,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
   })
 
   const data = useMemo<Portfolio | undefined>(() => {
@@ -150,8 +152,8 @@ export function useIndexesForChain(chainId: number) {
   return useQuery({
     queryKey: ['spectrum', 'indexes', chainId],
     queryFn: () => listIndexesForChain(chainId),
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
   })
 }
 
@@ -160,8 +162,8 @@ export function useIndexes() {
   return useQuery({
     queryKey: ['spectrum', 'indexes', DEFAULT_CHAIN_ID],
     queryFn: listIndexes,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    refetchInterval: 120_000,
   })
 }
 
@@ -173,7 +175,7 @@ export function useIndexData(address?: string, chainId: number = DEFAULT_CHAIN_I
     queryKey: ['spectrum', 'index', chainId, address?.toLowerCase()],
     queryFn: () => getIndexData(address as Address, chainId, { inception: true, detail: true }),
     enabled: !!address,
-    staleTime: 30_000,
+    staleTime: 60_000,
   })
 }
 
@@ -262,4 +264,28 @@ export interface PerAssetReturn {
   pct: number | null
   /** Price history normalized to 100 at the window start (for sparklines / overlay). */
   series: NavPoint[]
+}
+
+// Live Dutch-auction deploy price — the ETH sent to claim the next slot (starts ~1 ETH,
+// decays toward a ~0.1 ETH floor over the slot, reverts SlotNotOpen() between slots →
+// priceWei null). Read-only (no wallet), polled so the launch CTA can show a live cost.
+export function useDeployPrice(chainId: number, enabled = true) {
+  return useQuery({
+    queryKey: ['spectrum', 'deployPrice', chainId],
+    enabled,
+    queryFn: async (): Promise<{ priceWei: bigint | null; slotOpen: boolean }> => {
+      try {
+        const wei = await clientFor(chainId).readContract({
+          address: chainCfg(chainId).spectrumFactory,
+          abi: factoryDeployAbi,
+          functionName: 'currentDeployPrice',
+        })
+        return { priceWei: wei as bigint, slotOpen: true }
+      } catch {
+        return { priceWei: null, slotOpen: false } // SlotNotOpen() between slots
+      }
+    },
+    refetchInterval: 6000,
+    staleTime: 4000,
+  })
 }

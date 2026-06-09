@@ -144,7 +144,7 @@ function SpotlightSlide({ ix, active }: { ix: IndexSummary; active: boolean }) {
             {ix.name || ix.symbol}
           </h2>
           <p className="line-clamp-3 text-sm leading-relaxed text-ink-dim">
-            {meta.description ?? `A ${ix.basketLength}-asset onchain index, priced in DSTABLE.`}
+            {meta.description ?? `A ${ix.basketLength}-asset onchain index.`}
           </p>
 
           <div className="mt-auto flex items-end justify-between gap-3">
@@ -158,7 +158,7 @@ function SpotlightSlide({ ix, active }: { ix: IndexSummary; active: boolean }) {
                   {formatPct(ix.change24hPct)}
                 </span>
               </div>
-              <div className="mt-1 font-mono text-[10px] text-ink-faint">DSTABLE · AUM {formatUsdCompact(aum)}</div>
+              <div className="mt-1 font-mono text-[10px] text-ink-faint">AUM {formatUsdCompact(aum)}</div>
             </div>
             <div className="h-12 w-28 shrink-0">
               <IndexSpark

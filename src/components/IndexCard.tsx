@@ -182,7 +182,7 @@ export function IndexCard({ ix }: { ix: IndexSummary }) {
           <div>
             <div className="font-num text-2xl leading-none tabular-nums text-ink">
               ${formatNav(ix.navPerToken, 4)}
-              <span className="ml-1 text-xs text-ink-faint">DSTABLE</span>
+              <span className="ml-1 text-xs text-ink-faint">USD</span>
             </div>
             <div className="mt-1 font-mono text-[11px] text-ink-faint">AUM {formatUsdCompact(ix.aumUsd)}</div>
           </div>

@@ -66,7 +66,7 @@ function Card({ ix, index }: { ix: IndexSummary; index: number }) {
         {/* signature glow on hover */}
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-16 left-1/2 h-32 w-2/3 -translate-x-1/2 rounded-full opacity-0 blur-3xl transition-opacity duration-300 group-hover/card:opacity-25"
+          className="pointer-events-none absolute -top-20 left-1/2 h-44 w-4/5 -translate-x-1/2 rounded-full opacity-[0.13] blur-3xl transition-opacity duration-300 group-hover/card:opacity-45"
           style={{ background: sig }}
         />
 
@@ -110,29 +110,31 @@ function Card({ ix, index }: { ix: IndexSummary; index: number }) {
           />
         </div>
 
-        {/* basket token icons — hover one for its live price */}
-        <div className="relative mt-3 flex items-center gap-1.5">
-          {icons.map((t) => {
-            const k = t.address.toLowerCase()
-            return (
-              <div
-                key={t.address}
-                className="relative"
-                onMouseEnter={() => setTok(k)}
-                onMouseLeave={() => setTok((p) => (p === k ? null : p))}
-              >
-                <span className="block cursor-pointer transition-transform duration-150 hover:scale-110">
-                  <AssetLogo address={t.address} symbol={t.symbol} chainId={ix.chainId} size={26} />
-                </span>
-                {tok === k && (
-                  <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-52 -translate-x-1/2">
-                    <AssetHoverCard chainId={ix.chainId} address={t.address} symbol={t.symbol} weightPct={t.weightPct} />
-                  </div>
-                )}
-              </div>
-            )
-          })}
-          {more > 0 && <span className="ml-0.5 font-mono text-[10px] text-ink-faint">+{more}</span>}
+        {/* basket token icons — overlapping cluster; hover one for its live price */}
+        <div className="relative mt-3 flex items-center">
+          <div className="flex items-center -space-x-2">
+            {icons.map((t) => {
+              const k = t.address.toLowerCase()
+              return (
+                <div
+                  key={t.address}
+                  className="relative transition-transform hover:z-20"
+                  onMouseEnter={() => setTok(k)}
+                  onMouseLeave={() => setTok((p) => (p === k ? null : p))}
+                >
+                  <span className="block cursor-pointer transition-transform duration-150 hover:scale-110">
+                    <AssetLogo address={t.address} symbol={t.symbol} chainId={ix.chainId} size={26} />
+                  </span>
+                  {tok === k && (
+                    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-52 -translate-x-1/2">
+                      <AssetHoverCard chainId={ix.chainId} address={t.address} symbol={t.symbol} weightPct={t.weightPct} />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {more > 0 && <span className="ml-3 font-mono text-[10px] text-ink-faint">+{more}</span>}
           <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-ink-faint">
             {ix.basketLength} assets
           </span>

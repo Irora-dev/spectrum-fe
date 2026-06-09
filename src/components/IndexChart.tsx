@@ -114,6 +114,9 @@ export function IndexChart({
           <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
             {active === 'ALL' ? 'since launch' : `past ${active}`}
           </span>
+          {isLoading && (
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan" role="status" aria-label="Updating price history" />
+          )}
         </div>
         <div className="flex items-center gap-1">
           {ranges.map((r) => (
@@ -131,7 +134,7 @@ export function IndexChart({
         </div>
       </div>
 
-      <div className={`relative w-full ${heightClass}`}>
+      <div className={`relative w-full ${heightClass}`} aria-busy={isLoading}>
         {series.length < 2 ? (
           <div className="grid h-full w-full place-items-center rounded-lg bg-white/[0.02] font-mono text-[11px] uppercase tracking-widest text-ink-faint">
             {isLoading ? 'Loading price history…' : 'No price history yet'}

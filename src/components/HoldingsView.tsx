@@ -115,14 +115,14 @@ export function HoldingsView({ holdings, chainId }: { holdings: Holding[]; chain
         </div>
       ) : (
         <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full text-left" aria-label="Index holdings">
             <thead>
               <tr className="border-b border-white/10 font-mono text-[10px] uppercase tracking-wider text-ink-faint">
-                <th className="py-2 pr-3 font-semibold">Asset</th>
-                <th className="px-3 py-2 text-right font-semibold">Price</th>
-                <th className="hidden px-3 py-2 text-right font-semibold sm:table-cell">24h</th>
-                <th className="px-3 py-2 text-right font-semibold">Weight</th>
-                <th className="hidden pl-3 py-2 text-right font-semibold md:table-cell">Value</th>
+                <th scope="col" className="py-2 pr-3 font-semibold">Asset</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Price</th>
+                <th scope="col" className="hidden px-3 py-2 text-right font-semibold sm:table-cell">24h</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Weight</th>
+                <th scope="col" className="hidden pl-3 py-2 text-right font-semibold md:table-cell">Value</th>
               </tr>
             </thead>
             <tbody>

@@ -3,7 +3,6 @@ import { WagmiProvider } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { config } from './wagmi'
-import { SpectrumBackground } from './components/SpectrumBackground'
 import { Layout } from './components/Layout'
 
 // Routes are code-split: each page (and its heavy deps — Recharts, the launch
@@ -21,6 +20,14 @@ const Docs = lazy(() => import('./pages/Docs').then((m) => ({ default: m.Docs })
 const Terms = lazy(() => import('./pages/Terms').then((m) => ({ default: m.Terms })))
 const Privacy = lazy(() => import('./pages/Privacy').then((m) => ({ default: m.Privacy })))
 const Risk = lazy(() => import('./pages/Risk').then((m) => ({ default: m.Risk })))
+const Studio = lazy(() => import('./pages/Studio').then((m) => ({ default: m.Studio })))
+const NotFound = lazy(() => import('./pages/NotFound').then((m) => ({ default: m.NotFound })))
+// The WebGL background is purely decorative + pulls in three.js (~heavy). Lazy-load
+// it so it's off the first-paint critical path; a null fallback means the page just
+// shows the solid void bg until it streams in.
+const SpectrumBackground = lazy(() =>
+  import('./components/SpectrumBackground').then((m) => ({ default: m.SpectrumBackground })),
+)
 const PostDeployTest = import.meta.env.DEV
   ? lazy(() => import('./pages/PostDeployTest').then((m) => ({ default: m.PostDeployTest })))
   : null
@@ -43,6 +50,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/terms': 'Terms · Spectrum',
   '/privacy': 'Privacy · Spectrum',
   '/risk': 'Risk · Spectrum',
+  '/studio': 'Studio · Spectrum',
 }
 
 function RouteTitle() {
@@ -69,7 +77,9 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <RouteTitle />
-          <SpectrumBackground />
+          <Suspense fallback={null}>
+            <SpectrumBackground />
+          </Suspense>
           <Layout>
             <Suspense fallback={<RouteFallback />}>
               <Routes>
@@ -87,11 +97,14 @@ export function App() {
                 <Route path="/terms" element={<Terms />} />
                 <Route path="/privacy" element={<Privacy />} />
                 <Route path="/risk" element={<Risk />} />
+                <Route path="/studio" element={<Studio />} />
                 {/* Dev-only harness (reproduces the deploy ceremony + a MOCK "Buy" bar).
                     Never routed in production builds, so the public site has no buy path here. */}
                 {import.meta.env.DEV && PostDeployTest && (
                   <Route path="/post-deploy-test" element={<PostDeployTest />} />
                 )}
+                {/* catch-all — unknown / stale URLs get a branded 404, not a blank page */}
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
           </Layout>

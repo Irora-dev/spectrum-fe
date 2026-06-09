@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useAllIndexes } from '../lib/spectrum/hooks'
 import { BasketGrid } from '../components/BasketGrid'
+import { TopBasket } from '../components/TopBasket'
 import { ConceptOrbit } from '../components/ConceptReveal'
 import { SpectrumWordmark } from '../components/SpectrumWordmark'
 
@@ -9,12 +10,14 @@ import { SpectrumWordmark } from '../components/SpectrumWordmark'
 // plain directory preview of the live indexes by total value. The full
 // searchable directory lives at /explore.
 export function Home() {
-  const { data, isLoading } = useAllIndexes()
+  const { data, isLoading, isError } = useAllIndexes()
   const all = data ?? []
 
-  // A plain, factual directory preview: the largest indexes by total value (the
-  // list arrives AUM-sorted). No "featured" or "trending" curation.
-  const preview = all.slice(0, 6)
+  // The list arrives AUM-sorted: the largest index by total value gets the bento
+  // treatment, the next few follow as a plain grid. Ordering is by an objective
+  // metric (TVL), not editorial curation.
+  const top = all[0]
+  const rest = all.slice(1, 7)
 
   return (
     <div className="space-y-14">
@@ -80,7 +83,7 @@ export function Home() {
 
           {/* scroll cue */}
           <div className="mt-16 flex flex-col items-center gap-2 text-ink-faint">
-            <span className="font-mono text-[10px] uppercase tracking-[0.3em]">Featured baskets</span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.3em]">Live indexes</span>
             <svg viewBox="0 0 24 24" className="h-5 w-5 animate-bounce" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 9l6 6 6-6" />
             </svg>
@@ -88,24 +91,49 @@ export function Home() {
         </div>
       </section>
 
-      {/* ── live indexes: plain directory preview, sorted by total value ─── */}
-      {!isLoading && preview.length > 0 && (
-        <section className="space-y-4">
-          <div className="flex items-end justify-between border-b border-white/10 pb-3">
-            <div>
-              <h2 className="font-display text-sm font-semibold uppercase tracking-[0.2em] text-ink">Live indexes</h2>
-              <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
-                Sorted by total value
-              </p>
-            </div>
-            <Link
-              to="/explore"
-              className="shrink-0 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan transition-colors hover:text-ink"
-            >
-              Explore all {all.length} →
-            </Link>
+      {/* ── live indexes: loading / error / content ─────────────────────── */}
+      {isLoading && (
+        <section className="space-y-8" aria-busy="true" aria-label="Loading indexes">
+          <div className="h-64 animate-pulse rounded-2xl border border-white/10 bg-white/[0.03]" />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-44 animate-pulse rounded-2xl border border-white/10 bg-white/[0.03]" />
+            ))}
           </div>
-          <BasketGrid indexes={preview} />
+        </section>
+      )}
+
+      {isError && !isLoading && (
+        <section className="rounded-2xl border border-white/10 bg-white/[0.02] p-8 text-center">
+          <p className="font-mono text-sm text-ink-dim">Couldn&rsquo;t load indexes right now.</p>
+          <p className="mt-1 font-mono text-[11px] text-ink-faint">Check your connection and try again.</p>
+        </section>
+      )}
+
+      {/* ── largest index (bento) + the rest as a plain grid, all by TVL ─── */}
+      {!isLoading && !isError && top && (
+        <section className="space-y-8">
+          <TopBasket ix={top} />
+
+          {rest.length > 0 && (
+            <div className="space-y-4">
+              <div className="flex items-end justify-between border-b border-white/10 pb-3">
+                <div>
+                  <h2 className="font-display text-sm font-semibold uppercase tracking-[0.2em] text-ink">More indexes</h2>
+                  <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.18em] text-ink-faint">
+                    Sorted by total value
+                  </p>
+                </div>
+                <Link
+                  to="/explore"
+                  className="shrink-0 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan transition-colors hover:text-ink"
+                >
+                  Explore all {all.length} →
+                </Link>
+              </div>
+              <BasketGrid indexes={rest} />
+            </div>
+          )}
         </section>
       )}
     </div>

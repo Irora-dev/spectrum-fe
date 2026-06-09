@@ -4,14 +4,26 @@
     {
       "name": "spectrum",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["dev", "--port", "4321", "--strictPort"],
-      "port": 4321
+      "runtimeArgs": ["dev", "--port", "4022", "--strictPort"],
+      "port": 4022
     },
     {
       "name": "giiift",
       "runtimeExecutable": "python3",
       "runtimeArgs": ["/Users/colbymort/giiift/dev-server.py", "3091", "/Users/colbymort/giiift"],
       "port": 3091
+    },
+    {
+      "name": "giiift-public",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/colbymort/giiift/dev-server.py", "3092", "/Users/colbymort/GIIIFT-Public"],
+      "port": 3092
+    },
+    {
+      "name": "unlock-kit",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["/Users/colbymort/giiift/dev-server.py", "8011", "/Users/colbymort/giiift-unlock-kit"],
+      "port": 8011
     }
   ]
 }

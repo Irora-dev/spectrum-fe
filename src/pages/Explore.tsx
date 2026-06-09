@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useAllIndexes } from '../lib/spectrum/hooks'
 import { BasketGrid } from '../components/BasketGrid'
+import { TopBasket } from '../components/TopBasket'
 import { IndexListRow } from '../components/IndexListRow'
 import { getIndexMeta } from '../lib/spectrum/metadata'
 import { SECTOR_COLOR, SECTORS, sectorOf, type Sector } from '../lib/spectrum/sectors'
@@ -86,7 +87,7 @@ export function Explore() {
             Explore
           </h1>
           <p className="mt-4 max-w-xl text-sm leading-relaxed text-ink-dim sm:text-base">
-            Every onchain index on Spectrum, across Base and Ethereum, priced in DSTABLE. Search, filter and
+            Every onchain index on Spectrum, across Base and Ethereum. Search, filter and
             sort the whole catalogue.
           </p>
 
@@ -121,6 +122,7 @@ export function Explore() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
+              aria-label="Search indexes by name, ticker, or creator"
               placeholder="Search by name, ticker, or creator…"
               className="w-full rounded-xl border border-white/12 bg-white/[0.03] py-2.5 pl-11 pr-10 font-mono text-sm text-ink transition-shadow placeholder:text-ink-faint focus:border-cyan/50 focus:shadow-[0_0_0_3px_rgba(53,224,255,0.12),0_10px_30px_-12px_rgba(53,224,255,0.4)] focus:outline-none"
             />
@@ -178,8 +180,9 @@ export function Explore() {
           </div>
         </div>
 
-        {/* filter chips */}
-        <div className="no-scrollbar mt-2.5 flex items-center gap-2 overflow-x-auto">
+        {/* filter chips (horizontal-scroll on mobile, with a right-edge fade hint) */}
+        <div className="relative mt-2.5">
+          <div className="no-scrollbar flex items-center gap-2 overflow-x-auto">
           {hasBoth &&
             (
               [
@@ -201,6 +204,11 @@ export function Explore() {
               {s}
             </FilterPill>
           ))}
+          </div>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-void to-transparent sm:hidden"
+          />
         </div>
       </div>
 
@@ -247,7 +255,16 @@ export function Explore() {
         )}
         {!isLoading && shown.length > 0 &&
           (view === 'grid' ? (
-            <BasketGrid indexes={shown} />
+            // Default (TVL-sorted) grid leads with the largest by total value in
+            // the bento; other sorts keep a uniform grid so the label stays true.
+            sort === 'aum' && shown.length >= 2 ? (
+              <div className="space-y-4">
+                <TopBasket ix={shown[0]} />
+                <BasketGrid indexes={shown.slice(1)} />
+              </div>
+            ) : (
+              <BasketGrid indexes={shown} />
+            )
           ) : (
             <div className="space-y-3">
               {shown.map((ix) => (

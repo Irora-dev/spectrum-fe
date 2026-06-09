@@ -69,10 +69,10 @@ export function Faq() {
         <Q q="Which networks does it run on?">
           <p>Base and Ethereum mainnet. Each index lives on one chain.</p>
         </Q>
-        <Q q="What is DSTABLE?">
+        <Q q="How are indexes priced?">
           <p>
-            DSTABLE is the ecosystem&rsquo;s dollar-pegged settlement unit (about $1). Indexes are quoted in it,
-            so a price reads as a familiar number.
+            Each index is priced at its NAV: the live USD value of everything it holds, divided by supply, so a
+            quote always reads as a familiar dollar figure.
           </p>
         </Q>
       </Group>
@@ -81,7 +81,7 @@ export function Faq() {
         <Q q="How do mint and redeem work?">
           <p>
             Minting and redeeming an index are mechanical, peer-to-contract swaps at NAV against its basket,
-            settled in DSTABLE through the index&rsquo;s own V4 hook. This app is informational: it does not
+            settled on-chain through the index&rsquo;s own V4 hook. This app is informational: it does not
             execute, route, or take custody of any transaction. You interact with the onchain contracts directly
             from your own wallet, and can open any index from <Link to="/explore">Explore</Link> to see its
             details.
@@ -130,7 +130,7 @@ export function Faq() {
           <p>
             Off-chain, as aggregate-spot USD: the sum of each constituent&rsquo;s held amount times its real
             market price, divided by the index&rsquo;s <code className="font-mono text-ink">effectiveSupply</code>.
-            There is no dstable/ETH conversion factor. See the{' '}
+            It uses real market prices only, with no synthetic conversion factor. See the{' '}
             <Link to="/docs/valuation">valuation method</Link>.
           </p>
         </Q>

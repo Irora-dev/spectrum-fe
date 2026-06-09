@@ -38,7 +38,7 @@ export function IndexListRow({ ix }: { ix: IndexSummary }) {
           onClick={() => setOpen((o) => !o)}
           aria-expanded={open}
           aria-label={`Toggle ${ix.symbol} basket`}
-          className="absolute inset-0"
+          className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan/70"
         />
 
         {/* identity: ticker · name · description */}
@@ -69,7 +69,7 @@ export function IndexListRow({ ix }: { ix: IndexSummary }) {
             </div>
             <div className="mt-1 line-clamp-1 text-xs font-medium text-ink">{ix.name?.trim() || '—'}</div>
             <div className="mt-0.5 line-clamp-1 text-[11px] text-ink-faint">
-              {meta.description ?? `A ${ix.basketLength}-asset onchain index, priced in DSTABLE.`}
+              {meta.description ?? `A ${ix.basketLength}-asset onchain index.`}
             </div>
           </div>
         </div>

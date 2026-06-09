@@ -19,8 +19,8 @@ export function TradePanel({ ix, sig, buyInk }: { ix: IndexData; sig: string; bu
       : amt * ix.navPerToken * (1 - FEE)
   const feeAmt = valid ? amt * FEE : 0
 
-  const inUnit = side === 'buy' ? 'DSTABLE' : `$${ix.symbol}`
-  const outUnit = side === 'buy' ? `$${ix.symbol}` : 'DSTABLE'
+  const inUnit = side === 'buy' ? 'USDC' : `$${ix.symbol}`
+  const outUnit = side === 'buy' ? `$${ix.symbol}` : 'USDC'
 
   return (
     <div className="rounded-2xl border border-white/12 bg-white/[0.03] p-4">
@@ -70,7 +70,7 @@ export function TradePanel({ ix, sig, buyInk }: { ix: IndexData; sig: string; bu
       <dl className="mt-3 space-y-1.5 font-mono text-[11px] text-ink-faint">
         <div className="flex justify-between">
           <dt>Price</dt>
-          <dd className="tabular-nums text-ink-dim">1 ${ix.symbol} = ${formatNav(ix.navPerToken)} DSTABLE</dd>
+          <dd className="tabular-nums text-ink-dim">1 ${ix.symbol} = ${formatNav(ix.navPerToken)}</dd>
         </div>
         <div className="flex justify-between">
           <dt>Fee (1%)</dt>

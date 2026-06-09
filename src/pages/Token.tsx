@@ -217,7 +217,7 @@ export function Token() {
                 {formatPct(ix.change24hPct)}
               </span>
             </div>
-            <div className="mt-1 font-mono text-[10px] text-ink-faint">DSTABLE · NAV per token</div>
+            <div className="mt-1 font-mono text-[10px] text-ink-faint">USD · NAV per token</div>
           </div>
         </div>
 
@@ -249,7 +249,7 @@ export function Token() {
             {meta.tagline ?? 'About'}
           </div>
           <p className="max-w-3xl text-sm leading-relaxed text-ink-dim">
-            {meta.description ?? `A ${ix.totalCount}-asset onchain index, priced in DSTABLE.`}
+            {meta.description ?? `A ${ix.totalCount}-asset onchain index.`}
           </p>
         </div>
 

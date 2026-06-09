@@ -104,12 +104,11 @@ export function Learn() {
         </Link>
       </Section>
 
-      <Section label="06 · PRISM &amp; DSTABLE" title="The settlement layer">
+      <Section label="06 · PRISM" title="The settlement layer">
         <p>
-          Indexes are priced in <span className="text-ink">DSTABLE</span>, the ecosystem&rsquo;s
-          dollar-pegged settlement currency, so a quote always reads as a familiar number. PRISM owns
-          the machine: it has a claim on every index&rsquo;s fees and on the dstable reserve, and its supply
-          shrinks through buy &amp; burn as the system is used.
+          Indexes are priced at NAV in dollars, so a quote always reads as a familiar number. PRISM owns
+          the machine: it has a claim on every index&rsquo;s fees, and its supply shrinks through
+          buy &amp; burn as the system is used.
         </p>
       </Section>
 

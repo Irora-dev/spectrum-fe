@@ -36,7 +36,7 @@ export interface IndexMeta {
 // + taglines were platform-authored and read as promotional investment theses
 // ("highest-conviction", "outperforming", "blue-chips") — a financial-promotion /
 // classification risk while activity is paused. With description/tagline absent, the UI
-// falls back to a neutral factual line ("A N-asset onchain index, priced in DSTABLE") and
+// falls back to a neutral factual line ("A N-asset onchain index") and
 // "About". Creators set their OWN description/tagline via the launch flow, under their own
 // responsibility (the deploy acknowledgment), once a real store backs this (#8/#9).
 const REGISTRY: Record<string, IndexMeta> = {

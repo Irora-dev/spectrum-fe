@@ -1,4 +1,4 @@
-import { encodePacked, formatUnits, keccak256, type Address } from 'viem'
+import { encodePacked, formatUnits, isAddress, keccak256, type Address } from 'viem'
 import { clientFor } from '../chain/rpc'
 import { DSTABLE_DECIMALS, V4_POOLS_SLOT, ZERO_ADDRESS } from '../chain/constants'
 import { chainCfg, DEFAULT_CHAIN_ID, SUPPORTED_CHAIN_IDS } from '../chain/chains'
@@ -120,6 +120,18 @@ interface CachedDexPair {
 }
 const dexCache = new Map<string, CachedDexPair>()
 
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+
+// Parse a DexScreener USD price string to a finite positive number, else null.
+// A malformed value ("NaN" / "Infinity" / garbage) parsed straight would flow into
+// balance × price and silently turn the whole index's AUM and NAV into NaN — which
+// the per-index try/catch can't catch (it's not a throw). Guard at the source.
+function parsePriceUsd(s: string | undefined | null): number | null {
+  if (s == null) return null
+  const n = parseFloat(s)
+  return Number.isFinite(n) && n > 0 ? n : null
+}
+
 async function fetchDexPrices(
   addresses: string[],
   slug: string,
@@ -140,27 +152,39 @@ async function fetchDexPrices(
 
   // DexScreener accepts up to 30 contracts per call; a basket is <= ~12.
   const url = `https://api.dexscreener.com/tokens/v1/${slug}/${misses.join(',')}`
-  try {
-    const r = await fetch(url, { headers: { Accept: 'application/json' } })
-    if (!r.ok) return out
-    const pairs = (await r.json()) as DexPair[]
-    // Deepest-liquidity pair per token among the fetched misses.
-    const best = new Map<string, DexPair>()
-    for (const p of pairs) {
-      const a = p.baseToken?.address?.toLowerCase()
-      if (!a) continue
-      const prev = best.get(a)
-      if (!prev || (p.liquidity?.usd ?? 0) > (prev.liquidity?.usd ?? 0)) best.set(a, p)
+  // Fetch with a short backoff on throttling (429) / transient server errors (5xx).
+  // Other 4xx (e.g. a malformed token) won't recover on retry, so bail immediately.
+  // On total failure leave misses unpriced for this call and don't cache the failure.
+  let pairs: DexPair[] | null = null
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } })
+      if (r.ok) {
+        pairs = (await r.json()) as DexPair[]
+        break
+      }
+      if (r.status !== 429 && r.status < 500) break
+    } catch {
+      /* network error — retry */
     }
-    // Cache every miss (null when DexScreener returned nothing) so repeat lookups
-    // across cards don't re-request it within the TTL.
-    for (const a of misses) {
-      const pair = best.get(a) ?? null
-      dexCache.set(`${slug}:${a}`, { pair, ts: now })
-      if (pair) out.set(a, pair)
-    }
-  } catch {
-    /* network error — leave misses unpriced for this call; don't cache the failure */
+    if (attempt < 2) await sleep(300 * (attempt + 1))
+  }
+  if (!pairs) return out
+
+  // Deepest-liquidity pair per token among the fetched misses.
+  const best = new Map<string, DexPair>()
+  for (const p of pairs) {
+    const a = p.baseToken?.address?.toLowerCase()
+    if (!a) continue
+    const prev = best.get(a)
+    if (!prev || (p.liquidity?.usd ?? 0) > (prev.liquidity?.usd ?? 0)) best.set(a, p)
+  }
+  // Cache every miss (null when DexScreener returned nothing) so repeat lookups
+  // across cards don't re-request it within the TTL.
+  for (const a of misses) {
+    const pair = best.get(a) ?? null
+    dexCache.set(`${slug}:${a}`, { pair, ts: now })
+    if (pair) out.set(a, pair)
   }
   return out
 }
@@ -346,7 +370,7 @@ async function computePoolPriceFactor(chainId: number): Promise<PriceFactor> {
     }
 
     const wMap = await fetchDexPrices([cfg.weth.toLowerCase()], cfg.dexscreenerSlug)
-    const ethUsd = parseFloat(wMap.get(cfg.weth.toLowerCase())?.priceUsd ?? '0') || null
+    const ethUsd = parsePriceUsd(wMap.get(cfg.weth.toLowerCase())?.priceUsd)
 
     let factor = 1
     if (dstablePerEth && dstableUsd && ethUsd) factor = (dstablePerEth * dstableUsd) / ethUsd
@@ -373,6 +397,22 @@ function weightedChange(holdings: Holding[], aumUsd: number): number | null {
 
 // ── Core reads ───────────────────────────────────────────────────────────────
 
+// Per-index immutable facts. Indexes are immutable by design — basket, weights,
+// name/symbol/decimals, and deployer are fixed at deploy — so read them once per
+// session and reuse. Every NAV poll then only re-reads the mutable bits (supply +
+// held balances), collapsing each refresh from ~(7 + 2N) reads/index to ~(2 + N).
+interface ImmutableMeta {
+  name: string
+  symbol: string
+  decimals: number
+  len: number
+  assets: Address[]
+  targetBps: number[]
+  assetDecimals: number[]
+  deployer: string | null
+}
+const immutableCache = new Map<string, ImmutableMeta>()
+
 // `inception` defaults off: list views don't need the lifetime-clamped chart window,
 // and skipping it avoids a per-index getLogs scan storm on public RPC.
 export async function getIndexData(
@@ -382,34 +422,49 @@ export async function getIndexData(
 ): Promise<IndexData> {
   const client = clientFor(chainId)
   const cfg = chainCfg(chainId)
+  const key = `${chainId}:${address.toLowerCase()}`
 
-  const [name, symbol, decimalsRaw, supplyRaw, lenRaw, deployer, effRaw] = await Promise.all([
-    client.readContract({ address, abi: indexAbi, functionName: 'name' }),
-    client.readContract({ address, abi: indexAbi, functionName: 'symbol' }),
-    client.readContract({ address, abi: indexAbi, functionName: 'decimals' }),
+  // Immutable facts — read once per session, then reuse on every poll (see note above).
+  let meta = immutableCache.get(key)
+  if (!meta) {
+    const [name, symbol, decimalsRaw, lenRaw, deployer] = await Promise.all([
+      client.readContract({ address, abi: indexAbi, functionName: 'name' }),
+      client.readContract({ address, abi: indexAbi, functionName: 'symbol' }),
+      client.readContract({ address, abi: indexAbi, functionName: 'decimals' }),
+      client.readContract({ address, abi: indexAbi, functionName: 'basketLength' }),
+      getDeployer(address, chainId),
+    ])
+    const n = Number(lenRaw)
+    const entries = await Promise.all(
+      Array.from({ length: n }, (_, i) =>
+        client.readContract({ address, abi: indexAbi, functionName: 'basket', args: [BigInt(i)] }),
+      ),
+    )
+    meta = {
+      name: name as string,
+      symbol: symbol as string,
+      decimals: Number(decimalsRaw),
+      len: n,
+      assets: entries.map((e) => e[0]),
+      targetBps: entries.map((e) => Number(e[5])),
+      assetDecimals: entries.map((e) => Number(e[6])),
+      deployer,
+    }
+    immutableCache.set(key, meta)
+  }
+  const { name, symbol, decimals, assets, targetBps, assetDecimals, deployer } = meta
+
+  // Mutable — supply + held balances move on every mint/redeem, so always re-read.
+  const [supplyRaw, effRaw] = await Promise.all([
     client.readContract({ address, abi: indexAbi, functionName: 'totalSupply' }),
-    client.readContract({ address, abi: indexAbi, functionName: 'basketLength' }),
-    getDeployer(address, chainId),
     // canonical NAV denominator — excludes tokens pending burn; fail-safe to null.
     client.readContract({ address, abi: indexAbi, functionName: 'effectiveSupply' }).catch(() => null),
   ])
-
-  const decimals = Number(decimalsRaw)
-  const len = Number(lenRaw)
   const totalSupply = Number(formatUnits(supplyRaw, decimals))
   const effectiveSupply = effRaw != null ? Number(formatUnits(effRaw, decimals)) : null
   // Aggregate-spot NAV divides by effectiveSupply, falling back to totalSupply if
   // the view reverts.
   const navDenom = effectiveSupply && effectiveSupply > 0 ? effectiveSupply : totalSupply
-
-  const entries = await Promise.all(
-    Array.from({ length: len }, (_, i) =>
-      client.readContract({ address, abi: indexAbi, functionName: 'basket', args: [BigInt(i)] }),
-    ),
-  )
-  const assets = entries.map((e) => e[0])
-  const targetBps = entries.map((e) => Number(e[5]))
-  const assetDecimals = entries.map((e) => Number(e[6]))
 
   // Held amount per constituent: prefer totalHeld(asset) (idle + parked in the
   // pook), falling back to the index's balanceOf if that view is unavailable.
@@ -439,7 +494,7 @@ export async function getIndexData(
   const holdings: Holding[] = assets.map((a, i) => {
     const low = a.toLowerCase()
     const p = dex.get(low)
-    let priceUsd = p?.priceUsd ? parseFloat(p.priceUsd) : 0
+    let priceUsd = parsePriceUsd(p?.priceUsd) ?? 0
     if (low === DSTABLE && !priceUsd) priceUsd = 1
     const balance = balances[i]
     const valueUsd = balance * priceUsd
@@ -557,7 +612,7 @@ export async function listIndexesForChain(chainId: number): Promise<IndexSummary
   const priceFactor = await getPoolPriceFactor(chainId)
 
   const list = await Promise.all(
-    Array.from(addresses).map(async (addr): Promise<IndexSummary | null> => {
+    Array.from(addresses).filter((addr) => isAddress(addr, { strict: false })).map(async (addr): Promise<IndexSummary | null> => {
       try {
         const d = await getIndexData(addr as Address, chainId, { priceFactor })
         // All constituents, by launch-target weight (so cards show the whole basket
